@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hotdeal-bot-config
+data:
+  # Discord 봇 설정
+  COMMAND_PREFIX: "!"
+  
+  # 데이터베이스 설정
+  DATABASE_URL: "postgresql://root:root@postgres-service:5432/studydb"
+  
+  # 크롤링 설정
+  CRAWL_INTERVAL: "3600"
+  
+  # 로깅 설정
+  LOG_LEVEL: "INFO"
+  LOG_FILE: "hotdeal_bot.log"
+  
+  # 타임존 설정
+  TZ: "Asia/Seoul"

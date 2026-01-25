@@ -1,0 +1,16 @@
+services:
+  discord-bot:
+    build:
+      context: ../../../workspace/personal/discode_bot_hotdeal
+      dockerfile: ../../../workspace/personal/discode_bot_hotdeal/Dockerfile
+    container_name: hotdeal-bot
+    restart: always
+    env_file:
+      - ../../../workspace/personal/discode_bot_hotdeal/.env
+    environment:
+      TZ: Asia/Seoul
+    volumes:
+      # 로그 파일 영구 저장
+      - /Users/mamyeongjae/home-server/data/services/personal/hotdeal-bot/logs:/app/logs
+    # 기존 PostgreSQL 서버 사용 (호스트 네트워크 또는 외부 PostgreSQL 서버)
+    network_mode: host

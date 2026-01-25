@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hotdeal-bot-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  
+  source:
+    repoURL: https://github.com/yuemj8665/discode_bot_hotdeal.git  # GitHub 저장소 URL 수정 필요
+    targetRevision: main
+    path: k8s/overlays/dev
+    
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hotdeal-bot-dev
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
