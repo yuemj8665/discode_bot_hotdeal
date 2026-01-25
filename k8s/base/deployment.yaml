@@ -17,6 +17,7 @@ spec:
       containers:
         - name: hotdeal-bot
           image: hotdeal-bot:latest
+          imagePullPolicy: Never  # 로컬 이미지 사용 (OrbStack)
           envFrom:
             - configMapRef:
                 name: hotdeal-bot-config
