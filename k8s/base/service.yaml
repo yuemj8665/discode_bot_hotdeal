@@ -6,7 +6,12 @@ metadata:
     app: hotdeal-bot
 spec:
   type: ClusterIP
-  # Discord 봇은 HTTP 서버가 아니므로 포트는 필요 없음
-  # 하지만 Service는 생성하여 Pod 선택자로 사용
+  # Discord 봇은 HTTP 서버가 아니지만 Service의 ports는 필수
+  # 더미 포트를 추가 (실제로 사용되지 않음)
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: dummy
   selector:
     app: hotdeal-bot

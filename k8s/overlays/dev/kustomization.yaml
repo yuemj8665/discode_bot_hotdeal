@@ -8,11 +8,11 @@ namePrefix: dev-
 resources:
   - ../../base
 
-# 이미지 태그 오버라이드
+# 이미지 태그 오버라이드 (날짜_시간분 형식)
 images:
   - name: hotdeal-bot
     newName: hotdeal-bot
-    newTag: "latest"
+    newTag: "20260126_0020"
 
 # ConfigMap 패치 (개발 환경 설정)
 configMapGenerator:

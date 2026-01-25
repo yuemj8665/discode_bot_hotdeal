@@ -6,8 +6,9 @@ data:
   # Discord 봇 설정
   COMMAND_PREFIX: "!"
   
-  # 데이터베이스 설정
-  DATABASE_URL: "postgresql://root:root@postgres-service:5432/studydb"
+  # 데이터베이스 설정 (호스트의 Docker PostgreSQL에 접근)
+  # OrbStack/macOS에서는 host.docker.internal 사용
+  DATABASE_URL: "postgresql://root:root@host.docker.internal:5432/studydb"
   
   # 크롤링 설정
   CRAWL_INTERVAL: "3600"

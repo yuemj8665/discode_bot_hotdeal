@@ -407,11 +407,14 @@ async def crawl_task():
 @bot.event
 async def on_ready():
     """봇이 준비되었을 때 실행되는 이벤트"""
-    # 데이터베이스 연결
+    # 데이터베이스 연결 (크롤링 태스크 시작 전에 완료되어야 함)
     try:
         await db.connect()
+        logger.info("데이터베이스 연결 성공")
     except Exception as e:
         logger.error(f"데이터베이스 연결 실패: {e}", exc_info=True)
+        # 데이터베이스 연결 실패 시 크롤링 태스크를 시작하지 않음
+        return
     
     # 봇 상태 설정
     await bot.change_presence(
@@ -434,13 +437,15 @@ async def on_ready():
     except Exception as e:
         logger.error(f"명령어 모듈 로드 오류: {e}", exc_info=True)
     
-    # 크롤링 태스크 시작
+    # 데이터베이스 연결이 완료된 후에만 크롤링 태스크 시작
     if not crawl_task.is_running():
         crawl_task.start()
+        logger.info("크롤링 태스크 시작")
     
     # 데이터 정리 태스크 시작
     if not cleanup_task.is_running():
         cleanup_task.start()
+        logger.info("데이터 정리 태스크 시작")
 
 
 @bot.event

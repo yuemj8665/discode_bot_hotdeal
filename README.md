@@ -33,9 +33,22 @@ discode_bot_hotdeal/
 ├── utils/                 # 유틸리티 모듈
 │   ├── __init__.py
 │   └── helpers.py         # 유틸리티 함수
+├── k8s/                   # Kubernetes 매니페스트
+│   ├── base/              # 기본 리소스
+│   │   ├── kustomization.yaml
+│   │   ├── deployment.yaml
+│   │   ├── service.yaml
+│   │   └── configmap.yaml
+│   └── overlays/          # 환경별 오버레이
+│       └── dev/           # 개발 환경
+│           └── kustomization.yaml
+├── argocd/                # ArgoCD 설정
+│   ├── application.yaml   # ArgoCD Application 정의
+│   └── README.md          # ArgoCD 배포 가이드
 ├── requirements.txt       # Python 의존성
 ├── Dockerfile             # Docker 이미지 빌드 파일
 ├── docker-compose.yml     # Docker Compose 설정
+├── deploy.sh              # 자동 배포 스크립트
 ├── .env.example           # 환경 변수 예시 파일
 └── README.md              # 이 파일
 ```
@@ -204,6 +217,268 @@ docker-compose down -v
 모든 컨테이너는 `Asia/Seoul` 타임존으로 설정되어 있습니다:
 - 봇 컨테이너: `TZ=Asia/Seoul` 환경 변수
 - PostgreSQL 컨테이너: `TZ=Asia/Seoul`, `PGTZ=Asia/Seoul` 환경 변수
+
+## Kubernetes 배포 (ArgoCD)
+
+이 프로젝트는 ArgoCD를 사용하여 Kubernetes에 배포됩니다.
+
+### 사전 준비
+
+#### 1. OrbStack Kubernetes 시작
+
+```bash
+# Kubernetes 클러스터 시작
+orbctl start k8s
+
+# 클러스터 상태 확인
+kubectl cluster-info
+```
+
+#### 2. ArgoCD 상태 확인
+
+```bash
+# ArgoCD Pod 상태 확인
+kubectl get pods -n argocd
+
+# ArgoCD 서비스 확인
+kubectl get svc -n argocd
+```
+
+#### 3. Secret 생성
+
+Discord 봇 토큰을 Kubernetes Secret으로 설정:
+
+```bash
+# Secret 생성 (실제 토큰으로 변경)
+kubectl create secret generic hotdeal-bot-secret \
+  -n hotdeal-bot-dev \
+  --from-literal=DISCORD_TOKEN='YOUR_ACTUAL_DISCORD_TOKEN'
+
+# Secret 확인
+kubectl get secret hotdeal-bot-secret -n hotdeal-bot-dev
+
+# Secret 내용 확인 (base64 디코딩)
+kubectl get secret hotdeal-bot-secret -n hotdeal-bot-dev -o jsonpath="{.data.DISCORD_TOKEN}" | base64 -d
+```
+
+#### 4. PostgreSQL 서비스 설정
+
+데이터베이스 연결을 위해 PostgreSQL 서비스가 필요합니다. ConfigMap의 `DATABASE_URL`을 확인하세요:
+
+```bash
+# ConfigMap 확인
+kubectl get configmap dev-hotdeal-bot-config -n hotdeal-bot-dev -o yaml
+
+# ConfigMap 수정 (필요시)
+kubectl edit configmap dev-hotdeal-bot-config -n hotdeal-bot-dev
+```
+
+### ArgoCD Application 등록
+
+```bash
+# 프로젝트 디렉토리로 이동
+cd /Users/mamyeongjae/home-server/workspace/personal/discode_bot_hotdeal
+
+# ArgoCD Application 등록
+kubectl apply -f argocd/application.yaml
+
+# 등록 확인
+kubectl get applications -n argocd
+
+# Application 상태 확인
+kubectl get application hotdeal-bot-dev -n argocd -o yaml
+```
+
+### 이미지 빌드 및 배포
+
+#### 자동 배포 스크립트 사용 (권장)
+
+```bash
+# 배포 스크립트 실행
+./deploy.sh "커밋 메시지"
+
+# 또는 커밋 메시지 없이 실행
+./deploy.sh
+```
+
+배포 스크립트는 다음 작업을 수행합니다:
+1. Docker 이미지 빌드 (태그: `hotdeal-bot:YYYYMMDD_HHMM` 형식)
+2. `kustomization.yaml`의 이미지 태그 자동 업데이트
+3. Git 커밋 및 푸시
+4. ArgoCD가 자동으로 배포 감지 및 적용
+
+#### 수동 배포
+
+```bash
+# 1. 이미지 태그 생성 (날짜_시간분 형식)
+TAG=$(date +%Y%m%d_%H%M)
+echo "태그: $TAG"
+
+# 2. Docker 이미지 빌드
+docker build -t hotdeal-bot:${TAG} .
+
+# 3. kustomization.yaml 업데이트
+sed -i '' "s/newTag: .*/newTag: \"${TAG}\"/" k8s/overlays/dev/kustomization.yaml
+
+# 4. Git 커밋 및 푸시
+git add .
+git commit -m "Deploy version ${TAG}"
+git push
+
+# ArgoCD가 자동으로 변경사항을 감지하여 배포합니다
+```
+
+### 배포 상태 확인
+
+```bash
+# Pod 상태 확인
+kubectl get pods -n hotdeal-bot-dev
+
+# Pod 상세 정보 확인
+kubectl describe pod -n hotdeal-bot-dev -l app=hotdeal-bot
+
+# Pod 로그 확인
+kubectl logs -f deployment/dev-hotdeal-bot -n hotdeal-bot-dev
+
+# 또는 특정 Pod 로그 확인
+kubectl logs -f <pod-name> -n hotdeal-bot-dev
+
+# Deployment 상태 확인
+kubectl get deployment -n hotdeal-bot-dev
+
+# Service 상태 확인
+kubectl get svc -n hotdeal-bot-dev
+```
+
+### 배포 재시작
+
+```bash
+# Deployment 재시작
+kubectl rollout restart deployment/dev-hotdeal-bot -n hotdeal-bot-dev
+
+# 재시작 후 상태 확인
+kubectl rollout status deployment/dev-hotdeal-bot -n hotdeal-bot-dev
+```
+
+### ArgoCD 접속
+
+#### 로컬 포트 포워딩
+
+```bash
+# ArgoCD 서버 포트 포워딩 (HTTPS)
+kubectl port-forward svc/argocd-server -n argocd 8081:443 &
+
+# 포트 포워딩 상태 확인
+lsof -i :8081
+
+# 접속 정보
+# URL: https://localhost:8081
+# Username: admin
+# Password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
+
+#### ngrok을 사용한 외부 접속
+
+```bash
+# 1. ArgoCD 포트 포워딩 시작
+kubectl port-forward svc/argocd-server -n argocd 8081:443 > /dev/null 2>&1 &
+
+# 2. ngrok 실행
+ngrok http 8081
+
+# ngrok이 생성한 URL로 ArgoCD에 접속 가능
+# 예: https://xxxx-xx-xx-xxx-xxx.ngrok-free.app
+```
+
+**주의**: ngrok 명령어는 포트 번호만 사용합니다:
+- ❌ `ngrok http https://localhost:8081` (잘못된 형식)
+- ✅ `ngrok http 8081` (올바른 형식)
+
+### 문제 해결
+
+#### Pod가 시작되지 않음
+
+```bash
+# Pod 이벤트 확인
+kubectl describe pod <pod-name> -n hotdeal-bot-dev
+
+# Pod 로그 확인
+kubectl logs <pod-name> -n hotdeal-bot-dev
+
+# 이전 컨테이너 로그 확인 (재시작된 경우)
+kubectl logs <pod-name> -n hotdeal-bot-dev --previous
+```
+
+#### ImagePullBackOff 오류
+
+```bash
+# 이미지 태그 확인
+kubectl describe pod <pod-name> -n hotdeal-bot-dev | grep Image:
+
+# 로컬 이미지 확인
+docker images | grep hotdeal-bot
+
+# 이미지 재빌드 및 태그 업데이트
+TAG=$(date +%Y%m%d_%H%M)
+docker build -t hotdeal-bot:${TAG} .
+sed -i '' "s/newTag: .*/newTag: \"${TAG}\"/" k8s/overlays/dev/kustomization.yaml
+kubectl apply -k k8s/overlays/dev
+```
+
+#### Secret 오류
+
+```bash
+# Secret 확인
+kubectl get secret hotdeal-bot-secret -n hotdeal-bot-dev
+
+# Secret 재생성
+kubectl delete secret hotdeal-bot-secret -n hotdeal-bot-dev
+kubectl create secret generic hotdeal-bot-secret \
+  -n hotdeal-bot-dev \
+  --from-literal=DISCORD_TOKEN='YOUR_TOKEN'
+```
+
+#### 데이터베이스 연결 실패
+
+```bash
+# ConfigMap 확인
+kubectl get configmap dev-hotdeal-bot-config -n hotdeal-bot-dev -o yaml
+
+# DATABASE_URL 수정
+kubectl edit configmap dev-hotdeal-bot-config -n hotdeal-bot-dev
+
+# Pod 재시작
+kubectl rollout restart deployment/dev-hotdeal-bot -n hotdeal-bot-dev
+```
+
+#### 네임스페이스 확인
+
+```bash
+# 네임스페이스 목록 확인
+kubectl get namespaces
+
+# 네임스페이스 생성 (필요시)
+kubectl create namespace hotdeal-bot-dev
+
+# 네임스페이스의 모든 리소스 확인
+kubectl get all -n hotdeal-bot-dev
+```
+
+### 이미지 태그 형식
+
+이미지 태그는 날짜_시간분 형식을 사용합니다:
+- 형식: `hotdeal-bot:YYYYMMDD_HHMM`
+- 예시: `hotdeal-bot:20260126_0020`
+
+`deploy.sh` 스크립트가 자동으로 현재 시간을 태그로 생성합니다.
+
+### 주의사항
+
+1. **헬스체크 없음**: Discord 봇은 HTTP 서버가 아니므로 liveness/readiness probe를 사용하지 않습니다.
+2. **Secret 관리**: Discord 토큰은 반드시 Secret으로 관리하고 Git에 커밋하지 마세요.
+3. **데이터베이스 연결**: PostgreSQL 서비스가 네임스페이스 내에 있어야 합니다.
+4. **이미지 빌드**: 로컬에서 빌드한 이미지는 `imagePullPolicy: Never`로 설정되어 있어 OrbStack에서 사용 가능합니다.
+5. **namePrefix**: `kustomization.yaml`의 `namePrefix: dev-`로 인해 리소스 이름이 `dev-`로 시작합니다.
 
 ## Docker로 실행하기 (로컬 개발용)
 
