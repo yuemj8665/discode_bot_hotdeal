@@ -1,0 +1,169 @@
+# -*- coding: utf-8 -*-
+"""
+알림 전송 서비스
+"""
+import discord
+from discord.ext import commands
+import logging
+from typing import List
+
+logger = logging.getLogger(__name__)
+
+
+class NotificationService:
+    """Discord 알림 전송을 담당하는 서비스"""
+
+    def __init__(self, bot: commands.Bot, db):
+        self.bot = bot
+        self.db = db
+
+    def _build_post_url(self, post_data: dict) -> str:
+        """게시글 URL을 절대 경로로 변환"""
+        url = post_data.get('full_url') or post_data.get('url', '')
+        if url and not url.startswith(('http://', 'https://')):
+            if url.startswith('/'):
+                url = f"https://arca.live{url}"
+            else:
+                url = f"https://arca.live/{url}"
+        return url
+
+    def _build_embed(self, post_data: dict, matched_keywords: List[str], post_url: str) -> discord.Embed:
+        """알림용 Embed 생성"""
+        embed = discord.Embed(
+            title="🔔 키워드 알림",
+            description=f"**{post_data['title']}**",
+            color=0xFF0000,
+            url=post_url if post_url.startswith(('http://', 'https://')) else None
+        )
+        embed.add_field(
+            name="매칭된 키워드",
+            value=", ".join(matched_keywords),
+            inline=False
+        )
+        embed.add_field(
+            name="링크",
+            value=post_url or 'N/A',
+            inline=False
+        )
+        if post_data.get('price'):
+            embed.add_field(
+                name="가격",
+                value=post_data['price'],
+                inline=True
+            )
+        embed.set_footer(text=f"출처: {post_data.get('source', 'Arca Live')}")
+        return embed
+
+    async def _find_user(self, user_id: int) -> discord.User | None:
+        """다양한 방법으로 Discord 사용자를 찾기"""
+        # 1. 캐시에서 찾기
+        user = self.bot.get_user(user_id)
+        if user:
+            return user
+
+        # 2. 서버 멤버 캐시에서 찾기
+        for guild in self.bot.guilds:
+            member = guild.get_member(user_id)
+            if member:
+                logger.debug(f"사용자 ID {user_id}를 서버 '{guild.name}'에서 찾음 (캐시)")
+                return member
+
+        # 3. API에서 가져오기
+        try:
+            user = await self.bot.fetch_user(user_id)
+            logger.debug(f"사용자 ID {user_id}를 API에서 가져옴: {user.name}")
+            return user
+        except discord.NotFound:
+            pass
+
+        # 4. 서버 멤버 API에서 가져오기
+        for guild in self.bot.guilds:
+            try:
+                member = await guild.fetch_member(user_id)
+                if member:
+                    logger.debug(f"사용자 ID {user_id}를 서버 '{guild.name}'에서 API로 가져옴")
+                    return member
+            except (discord.NotFound, discord.Forbidden):
+                continue
+
+        return None
+
+    async def _send_via_channel(self, user_id: int, embed: discord.Embed, post_data: dict, matched_keywords: List[str]) -> bool:
+        """DM 실패 시 채널로 알림 전송"""
+        post_url = self._build_post_url(post_data)
+
+        for guild in self.bot.guilds:
+            member = guild.get_member(user_id)
+            if not member:
+                continue
+
+            channel = await self._find_notification_channel(guild)
+            if not channel:
+                continue
+
+            try:
+                message = f"{member.mention} 🔔 키워드 알림!\n"
+                message += f"**매칭된 키워드:** {', '.join(matched_keywords)}\n"
+                message += f"**제목:** {post_data['title']}\n"
+                message += f"**링크:** {post_url or 'N/A'}"
+                await channel.send(message, embed=embed)
+                logger.debug(f"채널 알림 전송 성공: 사용자 {member.name} ({user_id}), 채널: {channel.name}")
+                return True
+            except discord.Forbidden:
+                logger.warning(f"채널 알림 전송 실패 (권한 없음): 채널 {channel.name} ({channel.id})")
+                continue
+
+        return False
+
+    async def _find_notification_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        """서버의 알림 채널 찾기"""
+        channel_id = await self.db.get_notification_channel(guild.id)
+        if channel_id:
+            return guild.get_channel(channel_id)
+
+        channel = discord.utils.get(guild.text_channels, name='general')
+        if channel:
+            return channel
+
+        channels = [ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages]
+        return channels[0] if channels else None
+
+    async def send(self, user_id: int, post_data: dict, matched_keywords: List[str]) -> bool:
+        """
+        사용자에게 알림 전송 (DM 우선, 실패 시 채널 폴백)
+
+        Args:
+            user_id: Discord 사용자 ID
+            post_data: 게시글 데이터
+            matched_keywords: 매칭된 키워드 리스트
+
+        Returns:
+            bool: 알림 전송 성공 여부
+        """
+        try:
+            user = await self._find_user(user_id)
+            if not user:
+                logger.warning(f"사용자 ID {user_id}를 찾을 수 없어 알림을 전송할 수 없습니다 (모든 방법 시도 실패)")
+                return False
+
+            post_url = self._build_post_url(post_data)
+            embed = self._build_embed(post_data, matched_keywords, post_url)
+
+            # DM 시도
+            try:
+                await user.send(embed=embed)
+                logger.debug(f"DM 전송 성공: 사용자 {user.name} ({user_id})")
+                return True
+            except discord.Forbidden:
+                logger.debug(f"DM 전송 실패 (차단됨): 사용자 {user.name} ({user_id}), 채널로 전송 시도")
+
+            # DM 실패 시 채널로 폴백
+            if await self._send_via_channel(user_id, embed, post_data, matched_keywords):
+                return True
+
+            logger.warning(f"사용자 ID {user_id}에게 알림을 전송할 수 있는 방법이 없습니다")
+            return False
+
+        except Exception as e:
+            logger.error(f"알림 전송 중 오류 발생: 사용자 ID {user_id}, 오류: {e}", exc_info=True)
+            return False
