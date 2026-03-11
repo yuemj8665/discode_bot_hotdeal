@@ -108,7 +108,7 @@ class CrawlService:
             normalized_post = post_url.split('?')[0]
             if normalized_post == normalized_last:
                 found_last = True
-                continue
+                break
             new_posts.append(post)
 
         if new_posts:
@@ -253,6 +253,6 @@ class CrawlService:
             return
 
         new_posts = await self.filter_new_posts(all_posts)
-        await self.save_posts(all_posts)
+        await self.save_posts(new_posts)
         await self.send_keyword_notifications(new_posts, notification_service)
         await self.update_crawl_state(new_posts)

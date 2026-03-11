@@ -5,10 +5,9 @@
 import aiohttp
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 import re
 import logging
-from datetime import datetime
 from .base import BaseCrawler
 
 logger = logging.getLogger(__name__)
@@ -400,85 +399,6 @@ class HotdealCrawler(BaseCrawler):
             self.logger.error(f"파싱 오류: {e}", exc_info=True)
             return []
     
-    async def crawl(self) -> List[Dict[str, Any]]:
-        """
-        크롤링 실행 메서드 (새로운 글만 필터링)
-        
-        Returns:
-            List[Dict[str, Any]]: 새로운 게시글 리스트
-        """
-        try:
-            # HTML 가져오기
-            html_data = await self.fetch()
-            if not html_data:
-                return []
-            
-            # 파싱
-            all_posts = self.parse(html_data)
-            if not all_posts:
-                return []
-            
-            # 마지막 게시글 ID 가져오기
-            last_post_id = None
-            if self.db:
-                last_post_id = await self.db.get_last_post_id(self.crawler_name)
-                self.logger.info(f"마지막 게시글 ID: {last_post_id}")
-            else:
-                self.logger.warning("데이터베이스가 설정되지 않아 마지막 게시글 ID를 가져올 수 없습니다")
-            
-            # 새로운 게시글만 필터링
-            new_posts = []
-            if last_post_id:
-                try:
-                    last_id_int = int(last_post_id)
-                    self.logger.info(f"마지막 ID ({last_id_int})보다 큰 게시글 필터링 중...")
-                    # 처음 몇 개 게시글 ID 로깅 (디버깅용)
-                    if all_posts:
-                        top_ids = [p.get('post_id', 'N/A') for p in all_posts[:5]]
-                        self.logger.info(f"크롤링된 상위 5개 게시글 ID: {top_ids}")
-                    
-                    for post in all_posts:
-                        post_id = post.get('post_id', '')
-                        if post_id.isdigit():
-                            post_id_int = int(post_id)
-                            if post_id_int > last_id_int:
-                                new_posts.append(post)
-                                self.logger.debug(f"새 게시글 발견: ID {post_id_int}, 제목: {post.get('title', '')[:50]}")
-                            elif post_id_int == last_id_int:
-                                # 같은 ID는 이미 처리된 게시글이므로 중단
-                                self.logger.info(f"게시글 ID {post_id_int}는 마지막 ID와 같아 필터링 중단 (이미 처리된 게시글)")
-                                break
-                            else:
-                                # 게시글이 ID 순서대로 정렬되어 있으므로, 더 이상 새로운 게시글이 없음
-                                self.logger.info(f"게시글 ID {post_id_int}는 마지막 ID {last_id_int}보다 작아 필터링 중단")
-                                break
-                        else:
-                            self.logger.warning(f"게시글 ID가 숫자가 아닙니다: {post_id}")
-                    self.logger.info(f"필터링 결과: {len(new_posts)}개 새로운 게시글 발견")
-                except ValueError as e:
-                    # last_post_id가 숫자가 아니면 모든 게시글을 새로운 것으로 간주
-                    self.logger.warning(f"마지막 ID 변환 오류: {e}, 최신 5개만 반환")
-                    new_posts = all_posts[:5]
-            else:
-                # 첫 크롤링이거나 마지막 ID가 없으면 최신 5개만 반환 (너무 많은 알림 방지)
-                self.logger.info("첫 크롤링이거나 마지막 ID가 없어 최신 5개만 반환")
-                new_posts = all_posts[:5]
-            
-            # 마지막 게시글 ID 업데이트
-            if new_posts and self.db:
-                latest_post_id = new_posts[0].get('post_id', '')
-                if latest_post_id:
-                    await self.db.update_last_post_id(self.crawler_name, latest_post_id)
-                    self.logger.info(f"마지막 게시글 ID 업데이트: {latest_post_id}")
-                else:
-                    self.logger.warning("새로운 게시글이 있지만 ID가 없어 업데이트하지 않습니다")
-            
-            return new_posts
-            
-        except Exception as e:
-            self.logger.error(f"{self.name} 크롤링 오류: {e}", exc_info=True)
-            return []
-    
     def check_keywords(self, title: str, keywords: List[str]) -> List[str]:
         """
         제목에 키워드가 포함되어 있는지 검사
@@ -508,38 +428,3 @@ class HotdealCrawler(BaseCrawler):
         
         return matched_keywords
     
-    async def crawl_with_keyword_check(self, db) -> List[Dict[str, Any]]:
-        """
-        키워드 검사를 포함한 크롤링 실행
-        
-        Args:
-            db: Database 인스턴스
-            
-        Returns:
-            List[Dict[str, Any]]: 키워드가 매칭된 새로운 게시글 리스트 (matched_keywords 필드 포함)
-        """
-        # 크롤링 실행
-        new_posts = await self.crawl()
-        
-        if not new_posts:
-            return []
-        
-        # 모든 키워드 가져오기
-        all_keywords = await db.get_all_keywords()
-        
-        # 각 게시글에 대해 키워드 매칭
-        matched_posts = []
-        for post in new_posts:
-            matched_keywords = self.check_keywords(post.get('title', ''), all_keywords)
-            if matched_keywords:
-                post['matched_keywords'] = matched_keywords
-                # 키워드를 가진 사용자 ID 목록 가져오기
-                matched_users = []
-                for keyword in matched_keywords:
-                    users = await db.get_users_by_keyword(keyword)
-                    matched_users.extend(users)
-                # 중복 제거
-                post['matched_user_ids'] = list(set(matched_users))
-                matched_posts.append(post)
-        
-        return matched_posts

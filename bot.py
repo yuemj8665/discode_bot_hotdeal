@@ -2,6 +2,7 @@
 """
 Discord 봇 메인 파일
 """
+import asyncio
 import discord
 from discord.ext import commands, tasks
 import logging
@@ -77,14 +78,14 @@ async def on_ready():
     except Exception as e:
         logger.error(f"슬래시 명령어 동기화 중 오류 발생: {e}")
 
-    # 명령어 로드
-    try:
-        await bot.load_extension('commands.hotdeal')
-        # 키워드 명령어 로드 (db 전달)
-        from commands.keyword import setup as keyword_setup
-        await keyword_setup(bot, db)
-    except Exception as e:
-        logger.error(f"명령어 모듈 로드 오류: {e}", exc_info=True)
+    # 명령어 로드 (on_ready 재호출 시 중복 로드 방지)
+    if 'commands.hotdeal' not in bot.extensions:
+        try:
+            await bot.load_extension('commands.hotdeal')
+            from commands.keyword import setup as keyword_setup
+            await keyword_setup(bot, db)
+        except Exception as e:
+            logger.error(f"명령어 모듈 로드 오류: {e}", exc_info=True)
 
     # 데이터베이스 연결이 완료된 후에만 크롤링 태스크 시작
     if not crawl_task.is_running():
@@ -144,4 +145,4 @@ if __name__ == '__main__':
     finally:
         # 봇 종료 시 데이터베이스 연결 종료
         if db._pool:
-            bot.loop.run_until_complete(db.close())
+            asyncio.run(db.close())
