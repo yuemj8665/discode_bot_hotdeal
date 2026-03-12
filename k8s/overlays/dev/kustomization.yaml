@@ -12,7 +12,7 @@ resources:
 images:
   - name: hotdeal-bot
     newName: hotdeal-bot
-    newTag: "20260126_0020"
+    newTag: "20260312_1430"
 
 # ConfigMap 패치 (개발 환경 설정)
 configMapGenerator:
