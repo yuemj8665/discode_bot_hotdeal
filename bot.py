@@ -10,7 +10,7 @@ import logging
 from config import Settings, setup_logging
 from database import Database
 from crawling import HotdealCrawler
-from services import CrawlService, NotificationService
+from services import CrawlService, NotificationService, AnalysisService
 
 # 로깅 설정
 logger = setup_logging()
@@ -32,6 +32,7 @@ db = Database()
 crawler = HotdealCrawler(db=db)
 crawl_service = CrawlService(crawler, db)
 notification_service = NotificationService(bot, db)
+analysis_service = AnalysisService(crawler, db, notification_service)
 
 
 @tasks.loop(hours=1)
@@ -43,6 +44,17 @@ async def cleanup_task():
             logger.info(f"오래된 핫딜 데이터 삭제 완료: {deleted_count}개")
     except Exception as e:
         logger.error(f"데이터 정리 태스크 오류: {e}", exc_info=True)
+
+
+@tasks.loop(minutes=5)
+async def analysis_task():
+    """AI 분석 대기 항목 처리 (5분마다, API Key 설정 시에만 동작)"""
+    if not Settings.ANTHROPIC_API_KEY:
+        return
+    try:
+        await analysis_service.run()
+    except Exception as e:
+        logger.error(f"AI 분석 태스크 오류: {e}", exc_info=True)
 
 
 @tasks.loop(minutes=1)
@@ -98,6 +110,14 @@ async def on_ready():
     if not cleanup_task.is_running():
         cleanup_task.start()
         logger.info("데이터 정리 태스크 시작")
+
+    # AI 분석 태스크 시작 (API Key 설정 여부와 무관하게 시작, 내부에서 Key 체크)
+    if not analysis_task.is_running():
+        analysis_task.start()
+        if Settings.ANTHROPIC_API_KEY:
+            logger.info("AI 분석 태스크 시작")
+        else:
+            logger.info("AI 분석 태스크 대기 중 (ANTHROPIC_API_KEY 미설정)")
 
 
 @bot.event

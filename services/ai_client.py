@@ -1,0 +1,92 @@
+# -*- coding: utf-8 -*-
+"""
+Claude AI 클라이언트
+ANTHROPIC_API_KEY가 설정되지 않으면 전체 기능이 비활성화됩니다.
+"""
+import logging
+from typing import Optional
+
+from config.settings import Settings
+
+logger = logging.getLogger(__name__)
+
+
+class AIClient:
+    """Claude API 클라이언트 (API Key 없으면 비활성화)"""
+
+    def __init__(self):
+        self.enabled = bool(Settings.ANTHROPIC_API_KEY)
+        if not self.enabled:
+            logger.info("ANTHROPIC_API_KEY 미설정 — AI 분석 기능 비활성화")
+
+    async def analyze_hotdeal(
+        self,
+        title: str,
+        price: str,
+        vote_count: int,
+        comment_count: int,
+        comments: list,
+    ) -> Optional[dict]:
+        """
+        핫딜 정보와 유저 반응을 분석하여 추천/비추천 판단
+
+        Args:
+            title: 게시글 제목
+            price: 가격
+            vote_count: 추천수
+            comment_count: 댓글 수
+            comments: 댓글 목록
+
+        Returns:
+            dict: {"recommendation": "추천"/"비추천", "reason": "이유"}
+            None: API Key 미설정 또는 오류
+        """
+        if not self.enabled:
+            return None
+
+        try:
+            import anthropic
+
+            client = anthropic.AsyncAnthropic(api_key=Settings.ANTHROPIC_API_KEY)
+
+            comments_text = "\n".join(
+                f"- {c}" for c in comments[:20]
+            ) if comments else "댓글 없음"
+
+            prompt = f"""당신은 온라인 핫딜 전문가입니다.
+아래 핫딜 정보와 유저들의 반응을 분석하여 이 핫딜이 살만한지 판단해주세요.
+
+[핫딜 정보]
+- 제목: {title}
+- 가격: {price or '정보 없음'}
+- 추천수: {vote_count}
+- 댓글수: {comment_count}
+
+[유저 댓글 (최근 {len(comments[:20])}개)]
+{comments_text}
+
+위 정보를 바탕으로 아래 JSON 형식으로만 응답해주세요. 다른 텍스트는 포함하지 마세요.
+{{"recommendation": "추천" 또는 "비추천", "reason": "3줄 이내의 판단 이유"}}"""
+
+            message = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=256,
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            import json
+            content = message.content[0].text.strip()
+            # JSON 파싱
+            result = json.loads(content)
+            if "recommendation" in result and "reason" in result:
+                return result
+
+            logger.warning(f"AI 응답 형식 불일치: {content}")
+            return None
+
+        except ImportError:
+            logger.error("anthropic 패키지가 설치되지 않았습니다. pip install anthropic")
+            return None
+        except Exception as e:
+            logger.error(f"AI 분석 오류: {e}", exc_info=True)
+            return None

@@ -31,3 +31,7 @@ class Settings:
     # 로깅 설정
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     LOG_FILE = os.getenv('LOG_FILE', 'hotdeal_bot.log')
+
+    # AI 분석 설정 (선택사항 — 없으면 AI 분석 기능 비활성화)
+    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+    AI_ANALYSIS_DELAY_HOURS = int(os.getenv('AI_ANALYSIS_DELAY_HOURS', '3'))

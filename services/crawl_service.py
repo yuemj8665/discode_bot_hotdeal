@@ -3,10 +3,11 @@
 크롤링 서비스
 """
 import logging
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional
-from datetime import datetime
 
 from database.models import Hotdeal
+from config.settings import Settings
 from .notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -210,6 +211,7 @@ class CrawlService:
                 f"알림 대상: {len(all_matched_users)}명"
             )
 
+            notified_users = set()
             for user_id in all_matched_users:
                 user_keywords = keyword_user_map.get(user_id, [])
                 user_categories = category_user_map.get(user_id, [])
@@ -218,8 +220,25 @@ class CrawlService:
                 )
                 if success:
                     notification_count += 1
+                    notified_users.add(user_id)
                 else:
                     logger.warning(f"알림 전송 실패: 사용자 ID {user_id}")
+
+            # AI 분석 예약 (API Key가 설정된 경우에만)
+            if notified_users and Settings.ANTHROPIC_API_KEY:
+                post_url = post_data.get('full_url') or post_data.get('url', '')
+                post_title = post_data.get('title', '')
+                if post_url:
+                    scheduled_at = datetime.now() + timedelta(
+                        hours=Settings.AI_ANALYSIS_DELAY_HOURS
+                    )
+                    await self.db.schedule_analysis(post_url, post_title, scheduled_at)
+                    for user_id in notified_users:
+                        await self.db.record_notification(post_url, user_id)
+                    logger.debug(
+                        f"AI 분석 예약: '{post_title[:30]}' "
+                        f"→ {scheduled_at.strftime('%H:%M')} ({len(notified_users)}명)"
+                    )
 
         if notification_count > 0:
             logger.info(f"알림 전송 완료: {notification_count}개")

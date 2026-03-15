@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 from urllib.parse import urlparse
-from .models import Hotdeal, User, Keyword, Category
+from .models import Hotdeal, User, Keyword, Category, PendingAnalysis
 from config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -154,6 +154,47 @@ class Database:
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+
+                # pending_analysis 테이블 생성 (AI 분석 대기 목록)
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS pending_analysis (
+                        id SERIAL PRIMARY KEY,
+                        post_url TEXT NOT NULL UNIQUE,
+                        post_title TEXT NOT NULL DEFAULT '',
+                        scheduled_at TIMESTAMP NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                await conn.execute('''
+                    CREATE INDEX IF NOT EXISTS idx_pending_analysis_scheduled_at
+                    ON pending_analysis(scheduled_at)
+                    WHERE status = 'pending'
+                ''')
+
+                # notification_history 테이블 생성 (1차 알림 수신자 추적)
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS notification_history (
+                        id SERIAL PRIMARY KEY,
+                        post_url TEXT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        notified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(post_url, user_id)
+                    )
+                ''')
+                await conn.execute('''
+                    CREATE INDEX IF NOT EXISTS idx_notification_history_post_url
+                    ON notification_history(post_url)
+                ''')
+
+                # users 테이블에 ai_analysis_alert 컬럼 추가 (마이그레이션)
+                try:
+                    await conn.execute('''
+                        ALTER TABLE users
+                        ADD COLUMN IF NOT EXISTS ai_analysis_alert BOOLEAN DEFAULT TRUE
+                    ''')
+                except Exception as e:
+                    logger.debug(f"users 테이블 마이그레이션 (ai_analysis_alert): {e}")
                 
                 logger.info("데이터베이스 초기화 완료")
         except Exception as e:
@@ -801,6 +842,109 @@ class Database:
             logger.error(f"알림 채널 설정 오류: {e}", exc_info=True)
             return False
     
+    # ==================== AI 분석 관련 메서드 ====================
+
+    async def schedule_analysis(self, post_url: str, post_title: str, scheduled_at) -> bool:
+        """AI 분석 예약 등록 (이미 존재하면 무시)"""
+        try:
+            async with self._pool.acquire() as conn:
+                result = await conn.execute('''
+                    INSERT INTO pending_analysis (post_url, post_title, scheduled_at)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (post_url) DO NOTHING
+                ''', post_url, post_title, scheduled_at)
+                return result == "INSERT 0 1"
+        except Exception as e:
+            logger.error(f"분석 예약 등록 오류: {e}", exc_info=True)
+            return False
+
+    async def get_due_analyses(self) -> List[PendingAnalysis]:
+        """scheduled_at이 지난 pending 항목 조회"""
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT * FROM pending_analysis
+                    WHERE status = 'pending'
+                      AND scheduled_at <= CURRENT_TIMESTAMP
+                    ORDER BY scheduled_at ASC
+                ''')
+                return [
+                    PendingAnalysis(
+                        id=row['id'],
+                        post_url=row['post_url'],
+                        post_title=row['post_title'],
+                        scheduled_at=row['scheduled_at'],
+                        status=row['status'],
+                        created_at=row['created_at'],
+                    )
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"분석 대기 목록 조회 오류: {e}", exc_info=True)
+            return []
+
+    async def update_analysis_status(self, analysis_id: int, status: str) -> bool:
+        """분석 상태 업데이트 (processing / done / failed)"""
+        try:
+            async with self._pool.acquire() as conn:
+                result = await conn.execute('''
+                    UPDATE pending_analysis SET status = $1 WHERE id = $2
+                ''', status, analysis_id)
+                return result == "UPDATE 1"
+        except Exception as e:
+            logger.error(f"분석 상태 업데이트 오류: {e}", exc_info=True)
+            return False
+
+    async def record_notification(self, post_url: str, user_id: int) -> bool:
+        """1차 알림 수신 기록 (중복 무시)"""
+        try:
+            async with self._pool.acquire() as conn:
+                result = await conn.execute('''
+                    INSERT INTO notification_history (post_url, user_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (post_url, user_id) DO NOTHING
+                ''', post_url, user_id)
+                return result == "INSERT 0 1"
+        except Exception as e:
+            logger.error(f"알림 수신 기록 오류: {e}", exc_info=True)
+            return False
+
+    async def get_notified_users(self, post_url: str) -> List[int]:
+        """해당 게시글의 1차 알림 수신자 목록 조회"""
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT nh.user_id FROM notification_history nh
+                    JOIN users u ON nh.user_id = u.user_id
+                    WHERE nh.post_url = $1
+                      AND u.ai_analysis_alert = TRUE
+                ''', post_url)
+                return [row['user_id'] for row in rows]
+        except Exception as e:
+            logger.error(f"알림 수신자 조회 오류: {e}", exc_info=True)
+            return []
+
+    async def cleanup_old_analyses(self, days: int = 7) -> int:
+        """오래된 분석 기록 삭제"""
+        try:
+            from datetime import timedelta
+            cutoff = datetime.now() - timedelta(days=days)
+            async with self._pool.acquire() as conn:
+                result = await conn.execute('''
+                    DELETE FROM pending_analysis WHERE created_at < $1
+                ''', cutoff)
+                count = int(result.split()[-1]) if result.startswith("DELETE") else 0
+                if count > 0:
+                    await conn.execute('''
+                        DELETE FROM notification_history WHERE notified_at < $1
+                    ''', cutoff)
+                return count
+        except Exception as e:
+            logger.error(f"오래된 분석 기록 삭제 오류: {e}", exc_info=True)
+            return 0
+
+    # ==================== 알림 채널 관리 메서드 ====================
+
     async def get_notification_channel(self, guild_id: int) -> Optional[int]:
         """
         서버의 알림 채널 조회

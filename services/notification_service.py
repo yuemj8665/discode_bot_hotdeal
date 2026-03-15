@@ -203,3 +203,98 @@ class NotificationService:
         except Exception as e:
             logger.error(f"알림 전송 중 오류 발생: 사용자 ID {user_id}, 오류: {e}", exc_info=True)
             return False
+
+    async def send_analysis_result(
+        self,
+        user_id: int,
+        post_data: dict,
+        ai_result: dict,
+    ) -> bool:
+        """
+        AI 분석 결과 2차 알림 전송
+
+        Args:
+            user_id: Discord 사용자 ID
+            post_data: 게시글 데이터 (title, url, vote_count, comment_count)
+            ai_result: AI 분석 결과 {"recommendation": ..., "reason": ...}
+                       None이면 통계 정보만 전송
+
+        Returns:
+            bool: 전송 성공 여부
+        """
+        try:
+            user = await self._find_user(user_id)
+            if not user:
+                return False
+
+            post_url = self._build_post_url(post_data)
+            embed = self._build_analysis_embed(post_data, ai_result, post_url)
+
+            try:
+                await user.send(embed=embed)
+                logger.debug(f"AI 분석 2차 알림 DM 전송: 사용자 {user_id}")
+                return True
+            except discord.Forbidden:
+                pass
+
+            # 채널 폴백
+            for guild in self.bot.guilds:
+                member = guild.get_member(user_id)
+                if not member:
+                    continue
+                channel = await self._find_notification_channel(guild)
+                if not channel:
+                    continue
+                try:
+                    await channel.send(f"{member.mention}", embed=embed)
+                    return True
+                except discord.Forbidden:
+                    continue
+
+            return False
+
+        except Exception as e:
+            logger.error(f"AI 분석 알림 전송 오류: 사용자 ID {user_id}, {e}", exc_info=True)
+            return False
+
+    def _build_analysis_embed(
+        self, post_data: dict, ai_result: dict, post_url: str
+    ) -> discord.Embed:
+        """AI 분석 결과 Embed 생성"""
+        if ai_result:
+            recommendation = ai_result.get('recommendation', '')
+            is_positive = recommendation == '추천'
+            color = 0x00C851 if is_positive else 0xFF4444
+            icon = '✅' if is_positive else '❌'
+            title = f"🤖 AI 분석 결과 — {icon} {recommendation}"
+        else:
+            color = 0x999999
+            title = "🤖 AI 분석 결과 — 분석 불가"
+
+        embed = discord.Embed(
+            title=title,
+            description=f"**{post_data.get('title', '')}**",
+            color=color,
+            url=post_url if post_url.startswith(('http://', 'https://')) else None,
+        )
+
+        if ai_result:
+            embed.add_field(
+                name="AI 판단 이유",
+                value=ai_result.get('reason', '-'),
+                inline=False,
+            )
+
+        embed.add_field(
+            name="추천수",
+            value=str(post_data.get('vote_count', 0)),
+            inline=True,
+        )
+        embed.add_field(
+            name="댓글수",
+            value=str(post_data.get('comment_count', 0)),
+            inline=True,
+        )
+        embed.add_field(name="링크", value=post_url or 'N/A', inline=False)
+        embed.set_footer(text="1차 알림 후 3시간 뒤 분석 결과입니다.")
+        return embed

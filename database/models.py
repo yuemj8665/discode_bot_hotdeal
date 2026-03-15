@@ -117,3 +117,14 @@ class Category:
             category=data.get("category", ""),
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
         )
+
+
+@dataclass
+class PendingAnalysis:
+    """AI 분석 대기 데이터 모델"""
+    id: Optional[int] = None
+    post_url: str = ""
+    post_title: str = ""
+    scheduled_at: Optional[datetime] = None  # 생성시간 + 3시간
+    status: str = "pending"                   # pending / processing / done / failed
+    created_at: Optional[datetime] = None

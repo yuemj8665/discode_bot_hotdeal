@@ -399,6 +399,100 @@ class HotdealCrawler(BaseCrawler):
             self.logger.error(f"파싱 오류: {e}", exc_info=True)
             return []
     
+    async def fetch_post_detail(self, post_url: str) -> Dict[str, Any]:
+        """
+        개별 게시글 페이지에서 추천수와 댓글을 수집
+
+        Args:
+            post_url: 게시글 전체 URL
+
+        Returns:
+            dict: vote_count, comment_count, comments(list) 포함
+        """
+        import asyncio
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        }
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+        result = {'vote_count': 0, 'comment_count': 0, 'comments': []}
+
+        for attempt in range(3):
+            try:
+                async with aiohttp.ClientSession(headers=headers) as session:
+                    async with session.get(post_url, timeout=timeout) as response:
+                        if response.status == 200:
+                            html = await response.text()
+                            return self._parse_post_detail(html)
+                        else:
+                            self.logger.warning(f"게시글 상세 요청 실패: {response.status} ({post_url})")
+                            if attempt < 2:
+                                await asyncio.sleep(2 ** attempt)
+            except Exception as e:
+                self.logger.warning(f"게시글 상세 크롤링 오류 (시도 {attempt + 1}/3): {e}")
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
+
+        return result
+
+    def _parse_post_detail(self, html: str) -> Dict[str, Any]:
+        """
+        개별 게시글 HTML에서 추천수 / 댓글 파싱
+
+        Returns:
+            dict: vote_count(int), comment_count(int), comments(List[str])
+        """
+        result = {'vote_count': 0, 'comment_count': 0, 'comments': []}
+        if not html:
+            return result
+
+        try:
+            soup = BeautifulSoup(html, 'lxml')
+
+            # 추천수 파싱 (여러 선택자 폴백)
+            vote_selectors = [
+                '.vote-up-count',
+                '.vote-btn .count',
+                '[class*="vote"] .count',
+                '.btn-vote-up span',
+            ]
+            for sel in vote_selectors:
+                elem = soup.select_one(sel)
+                if elem:
+                    text = elem.get_text(strip=True).replace(',', '')
+                    if text.isdigit():
+                        result['vote_count'] = int(text)
+                        break
+
+            # 댓글 파싱 (최대 30개)
+            comment_selectors = [
+                '.comment-item .message',
+                '.comment .message',
+                '[class*="comment"] [class*="message"]',
+                '.comment-content',
+            ]
+            comments = []
+            for sel in comment_selectors:
+                elems = soup.select(sel)
+                if elems:
+                    for elem in elems[:30]:
+                        text = elem.get_text(strip=True)
+                        if text:
+                            comments.append(text)
+                    break
+
+            result['comment_count'] = len(comments)
+            result['comments'] = comments
+
+        except Exception as e:
+            self.logger.error(f"게시글 상세 파싱 오류: {e}", exc_info=True)
+
+        return result
+
     def check_keywords(self, title: str, keywords: List[str]) -> List[str]:
         """
         제목에 키워드가 포함되어 있는지 검사
