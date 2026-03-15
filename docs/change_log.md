@@ -18,6 +18,26 @@
 
 ## 변경 이력
 
+### [2026-03-15] AI 모델 gemini-2.5-flash → gemini-2.5-flash-lite 변경
+- **변경 유형**: 설정 변경
+- **변경 내용**:
+  - `services/ai_client.py`: 모델명 `gemini-2.5-flash` → `gemini-2.5-flash-lite`
+  - `k8s/overlays/dev/kustomization.yaml`: 이미지 태그 `20260315_1920`으로 업데이트
+- **변경 이유**: gemini-2.5-flash-lite는 경량 모델로 무료 사용량 한도가 더 높음. 핫딜 추천/비추천 판단 품질은 동일하게 충분함 확인
+- **영향 범위**: `services/ai_client.py`
+
+---
+
+### [2026-03-15] Gemini 429 사용량 제한 시 재시도 누락 버그 수정
+- **변경 유형**: 버그 수정
+- **변경 내용**:
+  - `services/ai_client.py`: `ClientError` 중 `status_code == 429`인 경우 `return None` 대신 `raise`로 상위 전파
+- **변경 이유**: 429(사용량 제한)는 일시적 오류임에도 `return None`으로 처리되어 `_process()`가 정상 완료 → `status='done'`으로 확정되어 재시도 로직이 전혀 작동하지 않는 문제 발견
+- **영향 범위**: `services/ai_client.py`
+- **참고**: 429 외 오류(응답 형식 불일치 등)는 기존대로 `return None` 유지. Gemini 사용량은 태평양 표준시(PST) 자정 기준 리셋
+
+---
+
 ### [2026-03-15] AI 분석 실패 시 재시도 정책 추가
 - **변경 유형**: 기능 추가
 - **변경 내용**:

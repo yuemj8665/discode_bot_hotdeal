@@ -19,6 +19,15 @@
 
 ## 기록된 에러
 
+### [2026-03-15] Gemini 429 발생 시 재시도 미동작 (설계 버그)
+- **에러 메시지**: 직접적인 에러 없음 (429 발생 후 status='done'으로 처리됨)
+- **발생 상황**: Gemini API 사용량 제한(429) 발생 시 2차 알림 미전송. `pending_analysis` 테이블에서 해당 항목이 `done`으로 기록되어 재시도 불가
+- **원인**: `ai_client.py`의 `except Exception` 블록이 429 오류를 잡아 `return None` 처리. `_process()`는 예외 없이 완료되므로 `analysis_service.py`의 재시도 로직(`retry_count` 체크)에 도달하지 않음
+- **해결 방법**: `ai_client.py`에서 `ClientError`의 `status_code == 429`인 경우 `raise`로 상위 전파. `analysis_service.py`의 재시도 로직이 정상 동작하도록 수정
+- **참고**: 429 외 오류(JSON 파싱 실패, 응답 형식 불일치 등)는 재시도해도 의미 없으므로 기존대로 `return None` 유지
+
+---
+
 ### [2026-03-15] AttributeError: Settings has no attribute 'ANTHROPIC_API_KEY'
 - **에러 메시지**: `AttributeError: type object 'Settings' has no attribute 'ANTHROPIC_API_KEY'`
 - **발생 상황**: Gemini 교체 배포 후 `on_ready` 및 `analysis_task` 실행 시 봇 크래시
