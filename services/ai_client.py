@@ -70,7 +70,7 @@ class AIClient:
 {{"recommendation": "추천" 또는 "비추천", "reason": "3줄 이내의 판단 이유"}}"""
 
             response = await client.aio.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.5-flash-lite",
                 contents=prompt,
             )
 
@@ -93,5 +93,11 @@ class AIClient:
             logger.error("google-genai 패키지가 설치되지 않았습니다. pip install google-genai")
             return None
         except Exception as e:
+            # 429(사용량 제한)는 일시적 오류 — 상위로 던져서 재시도 대상으로 처리
+            # 사용량은 태평양 표준시(PST) 자정 기준 리셋
+            from google.genai.errors import ClientError
+            if isinstance(e, ClientError) and e.status_code == 429:
+                logger.warning(f"Gemini 사용량 제한 (429) — 재시도 예약: {e}")
+                raise
             logger.error(f"AI 분석 오류: {e}", exc_info=True)
             return None
