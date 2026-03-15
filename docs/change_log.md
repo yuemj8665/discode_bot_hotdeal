@@ -18,6 +18,20 @@
 
 ## 변경 이력
 
+### [2026-03-15] AI 분석 기능 환경변수 설정 추가
+- **변경 유형**: 설정 변경
+- **변경 내용**:
+  - `.env.example`: `ANTHROPIC_API_KEY`, `AI_ANALYSIS_DELAY_HOURS` 항목 추가 (주석 포함)
+  - `k8s/base/configmap.yaml`: `AI_ANALYSIS_DELAY_HOURS` 추가
+  - `ANTHROPIC_API_KEY`는 민감 값이므로 k8s Secret(`hotdeal-bot-secret`)에 별도 주입 방식으로 결정
+- **변경 이유**: AI 분석 기능 구현 후 실제 API Key 입력 경로가 `.env.example`과 k8s 설정에 누락되어 있었음
+- **영향 범위**: `.env.example`, `k8s/base/configmap.yaml`
+- **API Key 주입 방법**:
+  - 로컬: `.env` 파일에 `ANTHROPIC_API_KEY=sk-ant-...` 직접 입력
+  - k8s: `kubectl patch secret dev-hotdeal-bot-secret -n hotdeal-bot-dev` 명령으로 Secret에 주입 후 Pod 재시작
+
+---
+
 ### [2026-03-15] AI 분석 기능 구조 구현 (stub)
 - **변경 유형**: 기능 추가
 - **변경 내용**:
