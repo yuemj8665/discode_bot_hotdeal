@@ -18,7 +18,20 @@
 
 ## 변경 이력
 
-### [2026-03-15] AI 모델 gemini-2.5-flash → gemini-2.5-flash-lite 변경
+### [2026-03-15] Gemini API Key 로드밸런싱 구현 (3개 Key 라운드로빈)
+- **변경 유형**: 기능 추가
+- **변경 내용**:
+  - `config/settings.py`: `GEMINI_API_KEY` 단일 → `GEMINI_API_KEYS` 리스트로 변경 (`KEY_1,2,3` 로드, 없으면 단일 `GEMINI_API_KEY` 폴백)
+  - `services/ai_client.py`: `_next_key()` 라운드로빈 구현, `gemini-2.5-flash-lite` → `gemini-2.5-flash` 복원
+  - `bot.py`, `services/crawl_service.py`: `GEMINI_API_KEYS` 리스트 기준으로 체크, 로그에 Key 개수 표시
+  - `k8s/overlays/dev/kustomization.yaml`: 이미지 태그 `20260315_1930`으로 업데이트
+- **변경 이유**: Gemini 무료 tier 일일 한도가 Key당 20 req/day로 확인됨. 하루 핫딜 수집량(약 25건)이 한도 초과. Key 3개 라운드로빈으로 60 req/day 확보
+- **영향 범위**: `config/`, `services/ai_client.py`, `bot.py`, `services/crawl_service.py`, `k8s/`
+- **호출 순서**: KEY_1 → KEY_2 → KEY_3 → KEY_1 순환
+
+---
+
+### [2026-03-15] AI 모델 gemini-2.5-flash → gemini-2.5-flash-lite 변경 (롤백됨)
 - **변경 유형**: 설정 변경
 - **변경 내용**:
   - `services/ai_client.py`: 모델명 `gemini-2.5-flash` → `gemini-2.5-flash-lite`
