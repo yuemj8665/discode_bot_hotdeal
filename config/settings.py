@@ -33,5 +33,12 @@ class Settings:
     LOG_FILE = os.getenv('LOG_FILE', 'hotdeal_bot.log')
 
     # AI 분석 설정 (선택사항 — 없으면 AI 분석 기능 비활성화)
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+    # GEMINI_API_KEY_1,2,3 중 하나라도 있으면 활성화. 없으면 단일 GEMINI_API_KEY 폴백
+    GEMINI_API_KEYS = [
+        key for key in [
+            os.getenv('GEMINI_API_KEY_1', ''),
+            os.getenv('GEMINI_API_KEY_2', ''),
+            os.getenv('GEMINI_API_KEY_3', ''),
+        ] if key
+    ] or ([os.getenv('GEMINI_API_KEY', '')] if os.getenv('GEMINI_API_KEY') else [])
     AI_ANALYSIS_DELAY_HOURS = int(os.getenv('AI_ANALYSIS_DELAY_HOURS', '3'))

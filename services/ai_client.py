@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Gemini AI 클라이언트
-GEMINI_API_KEY가 설정되지 않으면 전체 기능이 비활성화됩니다.
+GEMINI_API_KEY_1,2,3 중 하나라도 설정되면 활성화됩니다.
+여러 Key 설정 시 라운드로빈으로 부하를 분산합니다.
 """
 import logging
 from typing import Optional
@@ -12,12 +13,23 @@ logger = logging.getLogger(__name__)
 
 
 class AIClient:
-    """Google Gemini API 클라이언트 (API Key 없으면 비활성화)"""
+    """Google Gemini API 클라이언트 (라운드로빈 로드밸런싱)"""
 
     def __init__(self):
-        self.enabled = bool(Settings.GEMINI_API_KEY)
-        if not self.enabled:
+        self._keys = Settings.GEMINI_API_KEYS
+        self.enabled = bool(self._keys)
+        self._index = 0
+
+        if self.enabled:
+            logger.info(f"Gemini AI 클라이언트 초기화 — API Key {len(self._keys)}개 등록")
+        else:
             logger.info("GEMINI_API_KEY 미설정 — AI 분석 기능 비활성화")
+
+    def _next_key(self) -> str:
+        """라운드로빈으로 다음 API Key 반환"""
+        key = self._keys[self._index % len(self._keys)]
+        self._index += 1
+        return key
 
     async def analyze_hotdeal(
         self,
@@ -48,7 +60,8 @@ class AIClient:
             from google import genai
             import json
 
-            client = genai.Client(api_key=Settings.GEMINI_API_KEY)
+            api_key = self._next_key()
+            client = genai.Client(api_key=api_key)
 
             comments_text = "\n".join(
                 f"- {c}" for c in comments[:20]
@@ -70,7 +83,7 @@ class AIClient:
 {{"recommendation": "추천" 또는 "비추천", "reason": "3줄 이내의 판단 이유"}}"""
 
             response = await client.aio.models.generate_content(
-                model="gemini-2.5-flash-lite",
+                model="gemini-2.5-flash",
                 contents=prompt,
             )
 
