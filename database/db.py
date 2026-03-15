@@ -7,7 +7,7 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 from urllib.parse import urlparse
-from .models import Hotdeal, User, Keyword
+from .models import Hotdeal, User, Keyword, Category
 from config.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,25 @@ class Database:
                 except Exception as e:
                     logger.debug(f"crawl_state 테이블 마이그레이션 (last_post_datetime): {e}")
                 
+                # user_categories 테이블 생성 (카테고리 구독 저장)
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS user_categories (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        category TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                        UNIQUE(user_id, category)
+                    )
+                ''')
+
+                await conn.execute('''
+                    CREATE INDEX IF NOT EXISTS idx_user_categories_user_id ON user_categories(user_id)
+                ''')
+                await conn.execute('''
+                    CREATE INDEX IF NOT EXISTS idx_user_categories_category ON user_categories(category)
+                ''')
+
                 # notification_channels 테이블 생성 (알림 채널 저장)
                 await conn.execute('''
                     CREATE TABLE IF NOT EXISTS notification_channels (
@@ -638,6 +657,123 @@ class Database:
             logger.error(f"모든 키워드 조회 오류: {e}", exc_info=True)
             return []
     
+    # ==================== 카테고리 관련 메서드 ====================
+
+    async def add_category(self, user_id: int, category: str) -> bool:
+        """
+        카테고리 구독 추가
+
+        Args:
+            user_id: Discord 사용자 ID
+            category: 추가할 카테고리 이름 (예: '식품', 'PC/하드웨어')
+
+        Returns:
+            bool: 성공 여부 (이미 존재하면 False)
+        """
+        try:
+            await self.add_user(user_id)
+            async with self._pool.acquire() as conn:
+                result = await conn.execute('''
+                    INSERT INTO user_categories (user_id, category)
+                    VALUES ($1, $2)
+                    ON CONFLICT (user_id, category) DO NOTHING
+                ''', user_id, category.strip())
+                return result == "INSERT 0 1"
+        except Exception as e:
+            logger.error(f"카테고리 추가 오류: {e}", exc_info=True)
+            return False
+
+    async def get_categories(self, user_id: int) -> List[Category]:
+        """
+        사용자의 카테고리 구독 목록 조회
+
+        Args:
+            user_id: Discord 사용자 ID
+
+        Returns:
+            List[Category]: 카테고리 리스트
+        """
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT * FROM user_categories
+                    WHERE user_id = $1
+                    ORDER BY created_at DESC
+                ''', user_id)
+                return [
+                    Category(
+                        id=row['id'],
+                        user_id=row['user_id'],
+                        category=row['category'],
+                        created_at=row['created_at']
+                    )
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"카테고리 조회 오류: {e}", exc_info=True)
+            return []
+
+    async def delete_category(self, user_id: int, category: str) -> bool:
+        """
+        카테고리 구독 삭제
+
+        Args:
+            user_id: Discord 사용자 ID
+            category: 삭제할 카테고리 이름
+
+        Returns:
+            bool: 성공 여부
+        """
+        try:
+            async with self._pool.acquire() as conn:
+                result = await conn.execute('''
+                    DELETE FROM user_categories
+                    WHERE user_id = $1 AND category = $2
+                ''', user_id, category.strip())
+                return result == "DELETE 1"
+        except Exception as e:
+            logger.error(f"카테고리 삭제 오류: {e}", exc_info=True)
+            return False
+
+    async def get_all_categories(self) -> List[str]:
+        """
+        구독 중인 모든 카테고리 목록 조회 (중복 제거)
+
+        Returns:
+            List[str]: 카테고리 리스트
+        """
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT DISTINCT category FROM user_categories
+                    ORDER BY category
+                ''')
+                return [row['category'] for row in rows]
+        except Exception as e:
+            logger.error(f"모든 카테고리 조회 오류: {e}", exc_info=True)
+            return []
+
+    async def get_users_by_category(self, category: str) -> List[int]:
+        """
+        특정 카테고리를 구독한 사용자 ID 목록 조회
+
+        Args:
+            category: 카테고리 이름
+
+        Returns:
+            List[int]: 사용자 ID 리스트
+        """
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT DISTINCT user_id FROM user_categories
+                    WHERE category = $1
+                ''', category.strip())
+                return [row['user_id'] for row in rows]
+        except Exception as e:
+            logger.error(f"카테고리로 사용자 조회 오류: {e}", exc_info=True)
+            return []
+
     # ==================== 알림 채널 관리 메서드 ====================
     
     async def set_notification_channel(self, guild_id: int, channel_id: int) -> bool:

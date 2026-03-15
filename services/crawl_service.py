@@ -167,44 +167,55 @@ class CrawlService:
             logger.info(f"데이터베이스 저장 완료: {saved_count}개 새 게시글 저장됨")
         return saved_count
 
-    async def send_keyword_notifications(
+    async def send_notifications(
         self,
         new_posts: List[Dict[str, Any]],
         notification_service: NotificationService,
     ) -> int:
-        """새 게시글에 대해 키워드 매칭 후 알림 전송"""
+        """새 게시글에 대해 키워드/카테고리 매칭 후 알림 전송"""
         if not new_posts:
             logger.debug("알림 전송할 새로운 게시글이 없습니다")
             return 0
 
         logger.debug(f"알림 전송 대상 게시글 수: {len(new_posts)}개")
         all_keywords = await self.db.get_all_keywords()
+        all_categories = await self.db.get_all_categories()
         notification_count = 0
 
         for post_data in new_posts:
             title = post_data.get('title', '')
+            post_category = post_data.get('category', '')
+
+            # 키워드 매칭: {user_id: [matched_keywords]}
             matched_keywords = self.crawler.check_keywords(title, all_keywords)
-
-            if not matched_keywords:
-                logger.debug(f"키워드 미매칭: '{title[:50]}'")
-                continue
-
-            # 매칭된 키워드를 가진 사용자 목록 수집
-            matched_users = set()
+            keyword_user_map: Dict[int, List[str]] = {}
             for keyword in matched_keywords:
-                users = await self.db.get_users_by_keyword(keyword)
-                matched_users.update(users)
+                for uid in await self.db.get_users_by_keyword(keyword):
+                    keyword_user_map.setdefault(uid, []).append(keyword)
 
-            if not matched_users:
+            # 카테고리 매칭: {user_id: [post_category]}
+            category_user_map: Dict[int, List[str]] = {}
+            if post_category and post_category in all_categories:
+                for uid in await self.db.get_users_by_category(post_category):
+                    category_user_map[uid] = [post_category]
+
+            all_matched_users = set(keyword_user_map) | set(category_user_map)
+            if not all_matched_users:
+                logger.debug(f"키워드/카테고리 미매칭: '{title[:50]}'")
                 continue
 
             logger.info(
-                f"키워드 매칭: '{title[:50]}' - "
-                f"키워드: {matched_keywords}, 알림 대상: {len(matched_users)}명"
+                f"매칭: '{title[:50]}' - "
+                f"키워드: {matched_keywords}, 카테고리: {post_category or 'N/A'}, "
+                f"알림 대상: {len(all_matched_users)}명"
             )
 
-            for user_id in matched_users:
-                success = await notification_service.send(user_id, post_data, matched_keywords)
+            for user_id in all_matched_users:
+                user_keywords = keyword_user_map.get(user_id, [])
+                user_categories = category_user_map.get(user_id, [])
+                success = await notification_service.send(
+                    user_id, post_data, user_keywords, user_categories
+                )
                 if success:
                     notification_count += 1
                 else:
@@ -254,5 +265,5 @@ class CrawlService:
 
         new_posts = await self.filter_new_posts(all_posts)
         await self.save_posts(new_posts)
-        await self.send_keyword_notifications(new_posts, notification_service)
+        await self.send_notifications(new_posts, notification_service)
         await self.update_crawl_state(new_posts)

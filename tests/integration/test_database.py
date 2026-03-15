@@ -17,6 +17,7 @@ async def db():
     yield database
     # 테스트 후 테이블 초기화
     async with database._pool.acquire() as conn:
+        await conn.execute("DELETE FROM user_categories")
         await conn.execute("DELETE FROM keywords")
         await conn.execute("DELETE FROM hotdeals")
         await conn.execute("DELETE FROM crawl_state")
@@ -248,3 +249,66 @@ class TestNotificationChannel:
         await db.set_notification_channel(guild_id=1001, channel_id=3001)
         result = await db.get_notification_channel(1001)
         assert result == 3001
+
+
+# ==================== 카테고리 구독 ====================
+
+class TestCategory:
+    @pytest.mark.asyncio
+    async def test_add_category(self, db):
+        result = await db.add_category(111, "식품")
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_add_duplicate_category_returns_false(self, db):
+        await db.add_category(111, "식품")
+        result = await db.add_category(111, "식품")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_get_categories(self, db):
+        await db.add_category(111, "식품")
+        await db.add_category(111, "전자제품")
+        categories = await db.get_categories(111)
+        names = [c.category for c in categories]
+        assert "식품" in names
+        assert "전자제품" in names
+
+    @pytest.mark.asyncio
+    async def test_delete_category(self, db):
+        await db.add_category(111, "식품")
+        result = await db.delete_category(111, "식품")
+        assert result is True
+        categories = await db.get_categories(111)
+        assert all(c.category != "식품" for c in categories)
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_category_returns_false(self, db):
+        result = await db.delete_category(111, "의류")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_get_users_by_category(self, db):
+        await db.add_category(111, "식품")
+        await db.add_category(222, "식품")
+        await db.add_category(333, "전자제품")
+        users = await db.get_users_by_category("식품")
+        assert 111 in users
+        assert 222 in users
+        assert 333 not in users
+
+    @pytest.mark.asyncio
+    async def test_get_all_categories_deduped(self, db):
+        await db.add_category(111, "식품")
+        await db.add_category(222, "식품")
+        await db.add_category(111, "전자제품")
+        all_cats = await db.get_all_categories()
+        assert all_cats.count("식품") == 1
+        assert "전자제품" in all_cats
+
+    @pytest.mark.asyncio
+    async def test_category_cascade_deleted_with_user(self, db):
+        await db.add_category(111, "식품")
+        await db.delete_user(111)
+        categories = await db.get_categories(111)
+        assert categories == []

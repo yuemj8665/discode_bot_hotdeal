@@ -84,6 +84,8 @@ async def on_ready():
             await bot.load_extension('commands.hotdeal')
             from commands.keyword import setup as keyword_setup
             await keyword_setup(bot, db)
+            from commands.category import setup as category_setup
+            await category_setup(bot, db)
         except Exception as e:
             logger.error(f"명령어 모듈 로드 오류: {e}", exc_info=True)
 

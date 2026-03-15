@@ -27,19 +27,32 @@ class NotificationService:
                 url = f"https://arca.live/{url}"
         return url
 
-    def _build_embed(self, post_data: dict, matched_keywords: List[str], post_url: str) -> discord.Embed:
+    def _build_embed(
+        self,
+        post_data: dict,
+        matched_keywords: List[str],
+        post_url: str,
+        matched_categories: List[str] = None,
+    ) -> discord.Embed:
         """알림용 Embed 생성"""
         embed = discord.Embed(
-            title="🔔 키워드 알림",
+            title="🔔 핫딜 알림",
             description=f"**{post_data['title']}**",
             color=0xFF0000,
             url=post_url if post_url.startswith(('http://', 'https://')) else None
         )
-        embed.add_field(
-            name="매칭된 키워드",
-            value=", ".join(matched_keywords),
-            inline=False
-        )
+        if matched_keywords:
+            embed.add_field(
+                name="매칭된 키워드",
+                value=", ".join(matched_keywords),
+                inline=False
+            )
+        if matched_categories:
+            embed.add_field(
+                name="매칭된 카테고리",
+                value=", ".join(matched_categories),
+                inline=False
+            )
         embed.add_field(
             name="링크",
             value=post_url or 'N/A',
@@ -49,6 +62,12 @@ class NotificationService:
             embed.add_field(
                 name="가격",
                 value=post_data['price'],
+                inline=True
+            )
+        if post_data.get('category'):
+            embed.add_field(
+                name="카테고리",
+                value=post_data['category'],
                 inline=True
             )
         embed.set_footer(text=f"출처: {post_data.get('source', 'Arca Live')}")
@@ -88,7 +107,14 @@ class NotificationService:
 
         return None
 
-    async def _send_via_channel(self, user_id: int, embed: discord.Embed, post_data: dict, matched_keywords: List[str]) -> bool:
+    async def _send_via_channel(
+        self,
+        user_id: int,
+        embed: discord.Embed,
+        post_data: dict,
+        matched_keywords: List[str],
+        matched_categories: List[str] = None,
+    ) -> bool:
         """DM 실패 시 채널로 알림 전송"""
         post_url = self._build_post_url(post_data)
 
@@ -102,8 +128,11 @@ class NotificationService:
                 continue
 
             try:
-                message = f"{member.mention} 🔔 키워드 알림!\n"
-                message += f"**매칭된 키워드:** {', '.join(matched_keywords)}\n"
+                message = f"{member.mention} 🔔 핫딜 알림!\n"
+                if matched_keywords:
+                    message += f"**매칭된 키워드:** {', '.join(matched_keywords)}\n"
+                if matched_categories:
+                    message += f"**매칭된 카테고리:** {', '.join(matched_categories)}\n"
                 message += f"**제목:** {post_data['title']}\n"
                 message += f"**링크:** {post_url or 'N/A'}"
                 await channel.send(message, embed=embed)
@@ -128,7 +157,13 @@ class NotificationService:
         channels = [ch for ch in guild.text_channels if ch.permissions_for(guild.me).send_messages]
         return channels[0] if channels else None
 
-    async def send(self, user_id: int, post_data: dict, matched_keywords: List[str]) -> bool:
+    async def send(
+        self,
+        user_id: int,
+        post_data: dict,
+        matched_keywords: List[str],
+        matched_categories: List[str] = None,
+    ) -> bool:
         """
         사용자에게 알림 전송 (DM 우선, 실패 시 채널 폴백)
 
@@ -136,6 +171,7 @@ class NotificationService:
             user_id: Discord 사용자 ID
             post_data: 게시글 데이터
             matched_keywords: 매칭된 키워드 리스트
+            matched_categories: 매칭된 카테고리 리스트
 
         Returns:
             bool: 알림 전송 성공 여부
@@ -147,7 +183,7 @@ class NotificationService:
                 return False
 
             post_url = self._build_post_url(post_data)
-            embed = self._build_embed(post_data, matched_keywords, post_url)
+            embed = self._build_embed(post_data, matched_keywords, post_url, matched_categories)
 
             # DM 시도
             try:
@@ -158,7 +194,7 @@ class NotificationService:
                 logger.debug(f"DM 전송 실패 (차단됨): 사용자 {user.name} ({user_id}), 채널로 전송 시도")
 
             # DM 실패 시 채널로 폴백
-            if await self._send_via_channel(user_id, embed, post_data, matched_keywords):
+            if await self._send_via_channel(user_id, embed, post_data, matched_keywords, matched_categories):
                 return True
 
             logger.warning(f"사용자 ID {user_id}에게 알림을 전송할 수 있는 방법이 없습니다")
