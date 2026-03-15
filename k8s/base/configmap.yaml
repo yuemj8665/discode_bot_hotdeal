@@ -12,6 +12,9 @@ data:
   
   # 크롤링 설정
   CRAWL_INTERVAL: "3600"
+
+  # AI 분석 설정 (ANTHROPIC_API_KEY는 Secret에서 주입)
+  AI_ANALYSIS_DELAY_HOURS: "3"
   
   # 로깅 설정
   LOG_LEVEL: "INFO"
