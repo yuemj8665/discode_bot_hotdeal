@@ -67,20 +67,22 @@ class AIClient:
                 f"- {c}" for c in comments[:20]
             ) if comments else "댓글 없음"
 
-            prompt = f"""당신은 온라인 핫딜 전문가입니다.
-아래 핫딜 정보와 유저들의 반응을 분석하여 이 핫딜이 살만한지 판단해주세요.
+            prompt = f"""당신은 커뮤니티 반응 분석가입니다.
+제품에 대한 사전 지식은 사용하지 마세요. 오직 아래 추천수와 댓글 반응만을 근거로 판단해주세요.
 
-[핫딜 정보]
-- 제목: {title}
-- 가격: {price or '정보 없음'}
+[게시글 제목]
+{title}
+
+[반응 지표]
 - 추천수: {vote_count}
 - 댓글수: {comment_count}
 
 [유저 댓글 (최근 {len(comments[:20])}개)]
 {comments_text}
 
-위 정보를 바탕으로 아래 JSON 형식으로만 응답해주세요. 다른 텍스트는 포함하지 마세요.
-{{"recommendation": "추천" 또는 "비추천", "reason": "3줄 이내의 판단 이유"}}"""
+추천수와 댓글의 전반적인 분위기(긍정/부정/중립 비율, 구매 후기, 가격 반응 등)만을 근거로 판단하세요.
+아래 JSON 형식으로만 응답해주세요. 다른 텍스트는 포함하지 마세요.
+{{"recommendation": "추천" 또는 "비추천", "reason": "5줄 이내의 판단 이유"}}"""
 
             response = await client.aio.models.generate_content(
                 model="gemini-2.5-flash",
