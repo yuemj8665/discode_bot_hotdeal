@@ -155,6 +155,50 @@ async def info(ctx):
     await ctx.send(embed=embed)
 
 
+@bot.command(name='사용법')
+async def usage(ctx):
+    """봇 사용법을 보여주는 명령어"""
+    logger.info(f"명령어 호출: !사용법 - 사용자: {ctx.author.name} ({ctx.author.id})")
+    prefix = Settings.COMMAND_PREFIX
+    embed = discord.Embed(
+        title="📖 핫딜 봇 사용법",
+        description="원하는 핫딜 키워드 또는 카테고리를 등록하면 새 핫딜 발생 시 DM으로 알림을 받을 수 있습니다.",
+        color=0x5865F2
+    )
+    embed.add_field(
+        name="🔑 키워드 알림",
+        value=(
+            f"`{prefix}키워드 추가 [단어]` — 키워드 등록\n"
+            f"`{prefix}키워드 삭제 [단어]` — 키워드 삭제\n"
+            f"`{prefix}키워드 목록` — 등록된 키워드 조회\n"
+            f"> `*` 입력 시 모든 핫딜 알림 수신"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="📂 카테고리 알림",
+        value=(
+            f"`{prefix}카테고리 추가 [카테고리명]` — 카테고리 구독\n"
+            f"`{prefix}카테고리 삭제 [카테고리명]` — 카테고리 구독 해제\n"
+            f"`{prefix}카테고리 목록` — 구독 중인 카테고리 조회\n"
+            "> 구독 가능: `식품` `생활용품` `전자제품` `PC/하드웨어` `SW/게임`\n"
+            "> `의류` `화장품` `상품권/쿠폰` `임박` `응모` `기타`"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="ℹ️ 기타",
+        value=(
+            f"`{prefix}사용법` — 이 메시지 표시\n"
+            f"`{prefix}정보` — 봇 정보 확인\n"
+            f"`{prefix}ping` — 응답 속도 확인"
+        ),
+        inline=False
+    )
+    embed.set_footer(text="키워드와 카테고리는 OR 조건으로 동작합니다 (하나라도 매칭 시 알림)")
+    await ctx.send(embed=embed)
+
+
 # 봇 실행
 if __name__ == '__main__':
     try:
