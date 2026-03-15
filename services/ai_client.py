@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Claude AI 클라이언트
-ANTHROPIC_API_KEY가 설정되지 않으면 전체 기능이 비활성화됩니다.
+Gemini AI 클라이언트
+GEMINI_API_KEY가 설정되지 않으면 전체 기능이 비활성화됩니다.
 """
 import logging
 from typing import Optional
@@ -12,12 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class AIClient:
-    """Claude API 클라이언트 (API Key 없으면 비활성화)"""
+    """Google Gemini API 클라이언트 (API Key 없으면 비활성화)"""
 
     def __init__(self):
-        self.enabled = bool(Settings.ANTHROPIC_API_KEY)
+        self.enabled = bool(Settings.GEMINI_API_KEY)
         if not self.enabled:
-            logger.info("ANTHROPIC_API_KEY 미설정 — AI 분석 기능 비활성화")
+            logger.info("GEMINI_API_KEY 미설정 — AI 분석 기능 비활성화")
 
     async def analyze_hotdeal(
         self,
@@ -45,9 +45,10 @@ class AIClient:
             return None
 
         try:
-            import anthropic
+            from google import genai
+            import json
 
-            client = anthropic.AsyncAnthropic(api_key=Settings.ANTHROPIC_API_KEY)
+            client = genai.Client(api_key=Settings.GEMINI_API_KEY)
 
             comments_text = "\n".join(
                 f"- {c}" for c in comments[:20]
@@ -68,15 +69,19 @@ class AIClient:
 위 정보를 바탕으로 아래 JSON 형식으로만 응답해주세요. 다른 텍스트는 포함하지 마세요.
 {{"recommendation": "추천" 또는 "비추천", "reason": "3줄 이내의 판단 이유"}}"""
 
-            message = await client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=256,
-                messages=[{"role": "user", "content": prompt}],
+            response = await client.aio.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
             )
 
-            import json
-            content = message.content[0].text.strip()
-            # JSON 파싱
+            content = response.text.strip()
+            # JSON 코드블록 제거 (```json ... ``` 형태 대응)
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+                content = content.strip()
+
             result = json.loads(content)
             if "recommendation" in result and "reason" in result:
                 return result
@@ -85,7 +90,7 @@ class AIClient:
             return None
 
         except ImportError:
-            logger.error("anthropic 패키지가 설치되지 않았습니다. pip install anthropic")
+            logger.error("google-genai 패키지가 설치되지 않았습니다. pip install google-genai")
             return None
         except Exception as e:
             logger.error(f"AI 분석 오류: {e}", exc_info=True)
