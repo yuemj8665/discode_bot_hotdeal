@@ -26,7 +26,7 @@ Discord에서 Arca Live 핫딜 게시판을 자동 모니터링하고 키워드 
 - **카테고리 관리**: 사용자별 카테고리 구독 추가 / 삭제 / 목록 조회
 - **중복 방지**: 마지막 게시글 datetime / URL / ID 기반 3단계 폴백으로 중복 알림 방지
 - **데이터 정리**: 24시간 이상 된 핫딜 데이터 자동 삭제
-- **AI 분석 2차 알림** *(선택)*: `ANTHROPIC_API_KEY` 설정 시, 1차 알림 3시간 후 추천수 · 댓글을 재크롤링하여 Claude AI가 추천/비추천 판단 및 이유를 2차 알림으로 전송
+- **AI 분석 2차 알림** *(선택)*: `GEMINI_API_KEY` 설정 시, 1차 알림 3시간 후 추천수 · 댓글을 재크롤링하여 Gemini 2.5 Flash가 추천/비추천 판단 및 이유를 2차 알림으로 전송. 실패 시 5분 후 자동 재시도 (최대 3회)
 
 ### 봇 명령어
 
@@ -51,7 +51,7 @@ Discord에서 Arca Live 핫딜 게시판을 자동 모니터링하고 키워드 
 1. 키워드 또는 카테고리 중 하나라도 매칭되면 알림 발송 (OR 조건)
 2. DM 전송 우선 → DM 불가 시 서버 지정 채널 or `general` 채널로 폴백
 3. `*` 키워드 등록 시 모든 핫딜에 매칭 (와일드카드)
-4. *(선택)* 1차 알림 3시간 후 AI가 추천수·댓글 기반으로 구매 추천 여부를 2차 알림으로 전송
+4. *(선택)* 1차 알림 3시간 후 Gemini AI가 추천수·댓글 기반으로 구매 추천 여부를 2차 알림으로 전송 (실패 시 5분 후 자동 재시도, 최대 3회)
 
 ---
 
@@ -82,7 +82,7 @@ discode_bot_hotdeal/
 │   ├── crawl_service.py      # 크롤링 파이프라인 (fetch → filter → save → notify)
 │   ├── notification_service.py # Discord 알림 전송
 │   ├── analysis_service.py   # AI 분석 2차 알림 서비스
-│   └── ai_client.py          # Anthropic Claude API 클라이언트
+│   └── ai_client.py          # Google Gemini API 클라이언트
 ├── utils/                    # 유틸리티 모듈
 │   └── helpers.py
 ├── tests/                    # 자동화 테스트
@@ -194,6 +194,7 @@ AI 분석 대기 항목을 저장합니다.
 | `post_title` | TEXT | 게시글 제목 |
 | `scheduled_at` | TIMESTAMP | 분석 실행 예정 시각 (1차 알림 + 3시간) |
 | `status` | TEXT | 처리 상태 (pending / processing / done / failed) |
+| `retry_count` | INTEGER | 재시도 횟수 (최대 3회, 초과 시 failed 확정) |
 | `created_at` | TIMESTAMP | 생성 시간 |
 
 #### notification_history *(AI 분석 선택 기능)*
@@ -228,7 +229,7 @@ pending_analysis (1) ──── (N) notification_history
 | **aiohttp** | ≥3.9.0 | 비동기 HTTP 요청, discord.py와 동일한 이벤트 루프 사용 |
 | **BeautifulSoup4** | ≥4.12.0 | HTML 파싱이 직관적이고 셀렉터 지원이 풍부 |
 | **python-dateutil** | ≥2.8.0 | ISO 8601 datetime 파싱 유연성 |
-| **anthropic** | ≥0.20.0 | Claude AI API 클라이언트 *(AI 분석 선택 기능)* |
+| **google-genai** | ≥1.0.0 | Google Gemini AI API 클라이언트 *(AI 분석 선택 기능, 무료 티어 1500 req/day)* |
 | **PostgreSQL** | - | 안정적인 관계형 DB, UPSERT(ON CONFLICT) 지원으로 중복 처리 간편 |
 | **Docker / Docker Compose** | - | 환경 일관성 보장, 홈 서버 배포 용이 |
 | **Kubernetes + ArgoCD** | - | GitOps 기반 자동 배포, 선언적 배포 관리 |
@@ -249,7 +250,7 @@ pending_analysis (1) ──── (N) notification_history
 | `CRAWL_INTERVAL` | ❌ | `3600` | 크롤링 간격 (초) |
 | `LOG_LEVEL` | ❌ | `INFO` | 로그 레벨 |
 | `LOG_FILE` | ❌ | `hotdeal_bot.log` | 로그 파일명 |
-| `ANTHROPIC_API_KEY` | ❌ | - | Anthropic API Key (미설정 시 AI 분석 비활성화) |
+| `GEMINI_API_KEY` | ❌ | - | Google Gemini API Key (미설정 시 AI 분석 비활성화, 발급: aistudio.google.com) |
 | `AI_ANALYSIS_DELAY_HOURS` | ❌ | `3` | AI 분석 실행 지연 시간 (시간 단위) |
 
 ### 로컬 실행 (venv)
@@ -305,7 +306,7 @@ kubectl create secret generic hotdeal-bot-secret \
 kubectl patch secret dev-hotdeal-bot-secret \
   -n hotdeal-bot-dev \
   --type='json' \
-  -p='[{"op":"add","path":"/data/ANTHROPIC_API_KEY","value":"'$(echo -n "sk-ant-..." | base64)'"}]'
+  -p='[{"op":"add","path":"/data/GEMINI_API_KEY","value":"'$(echo -n "AIza..." | base64)'"}]'
 
 # 3. ArgoCD Application 등록
 kubectl apply -f argocd/application.yaml
@@ -334,8 +335,11 @@ kubectl apply -f argocd/application.yaml
 | `ImagePullBackOff` (k8s) | 로컬 이미지를 찾지 못함 | `docker build` 후 `imagePullPolicy: Never` 확인 |
 | `ExtensionAlreadyLoaded` | `on_ready` 재호출로 명령어 중복 로드 | 봇 재시작 또는 코드 중복 로드 방어 처리 확인 |
 | 명령어 응답이 두 번 옴 | 동일 토큰으로 봇 인스턴스 2개 실행 중 | `docker ps \| grep hotdeal`로 확인 후 중복 컨테이너 중지 |
-| AI 분석이 동작하지 않음 | `ANTHROPIC_API_KEY` 미설정 | `.env` 또는 k8s Secret에 API Key 추가 후 재시작 |
+| AI 분석이 동작하지 않음 | `GEMINI_API_KEY` 미설정 | `.env` 또는 k8s Secret에 API Key 추가 후 재시작 |
 | 2차 알림이 오지 않음 | `pending_analysis` status 고착 | DB에서 `status='processing'` 항목을 `'pending'`으로 초기화 |
+| `AttributeError: Settings has no attribute 'ANTHROPIC_API_KEY'` | SDK 교체 후 설정 참조 누락 | `grep -rn ANTHROPIC_API_KEY` 로 잔존 참조 확인 후 `GEMINI_API_KEY`로 교체 |
+| `404 NOT_FOUND: models/gemini-1.5-flash` | 모델 지원 종료 | `gemini-2.5-flash` 로 변경 |
+| `429 RESOURCE_EXHAUSTED limit: 0` | 계정에서 해당 모델 free tier 미할당 | 사용 가능한 모델 확인 후 변경 (`gemini-2.5-flash` 권장) |
 
 ---
 

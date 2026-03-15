@@ -49,7 +49,7 @@ async def cleanup_task():
 @tasks.loop(minutes=5)
 async def analysis_task():
     """AI 분석 대기 항목 처리 (5분마다, API Key 설정 시에만 동작)"""
-    if not Settings.ANTHROPIC_API_KEY:
+    if not Settings.GEMINI_API_KEY:
         return
     try:
         await analysis_service.run()
@@ -114,10 +114,10 @@ async def on_ready():
     # AI 분석 태스크 시작 (API Key 설정 여부와 무관하게 시작, 내부에서 Key 체크)
     if not analysis_task.is_running():
         analysis_task.start()
-        if Settings.ANTHROPIC_API_KEY:
+        if Settings.GEMINI_API_KEY:
             logger.info("AI 분석 태스크 시작")
         else:
-            logger.info("AI 분석 태스크 대기 중 (ANTHROPIC_API_KEY 미설정)")
+            logger.info("AI 분석 태스크 대기 중 (GEMINI_API_KEY 미설정)")
 
 
 @bot.event

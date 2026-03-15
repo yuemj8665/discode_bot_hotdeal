@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 AI 분석 서비스
-3시간 후 재크롤링 → Claude AI 분석 → 2차 알림 전송
+3시간 후 재크롤링 → Gemini AI 분석 → 2차 알림 전송
+실패 시 5분 후 재시도 (최대 3회)
 """
 import logging
 
@@ -9,6 +10,8 @@ from .ai_client import AIClient
 from .notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRY_COUNT = 3
 
 
 class AnalysisService:
@@ -42,7 +45,15 @@ class AnalysisService:
                 processed += 1
             except Exception as e:
                 logger.error(f"분석 처리 오류 (id={analysis.id}): {e}", exc_info=True)
-                await self.db.update_analysis_status(analysis.id, 'failed')
+                if analysis.retry_count < MAX_RETRY_COUNT:
+                    await self.db.reschedule_failed_analysis(analysis.id, retry_after_minutes=5)
+                    logger.info(
+                        f"AI 분석 재시도 예약 (id={analysis.id}, "
+                        f"{analysis.retry_count + 1}/{MAX_RETRY_COUNT}회차, 5분 후)"
+                    )
+                else:
+                    await self.db.update_analysis_status(analysis.id, 'failed')
+                    logger.warning(f"AI 분석 최대 재시도 초과, 포기 (id={analysis.id})")
 
         if processed > 0:
             logger.info(f"AI 분석 완료: {processed}개")

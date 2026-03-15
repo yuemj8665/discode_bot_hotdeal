@@ -19,6 +19,33 @@
 
 ## 기록된 에러
 
+### [2026-03-15] AttributeError: Settings has no attribute 'ANTHROPIC_API_KEY'
+- **에러 메시지**: `AttributeError: type object 'Settings' has no attribute 'ANTHROPIC_API_KEY'`
+- **발생 상황**: Gemini 교체 배포 후 `on_ready` 및 `analysis_task` 실행 시 봇 크래시
+- **원인**: `config/settings.py`에서 `ANTHROPIC_API_KEY`를 `GEMINI_API_KEY`로 변경했으나 `bot.py`(2곳), `services/crawl_service.py`(1곳)에 기존 속성명이 잔존
+- **해결 방법**: 3곳 모두 `Settings.ANTHROPIC_API_KEY` → `Settings.GEMINI_API_KEY`로 교체
+- **참고**: SDK 교체 시 관련 설정 참조 전체를 `grep -rn`으로 확인하는 습관 필요
+
+---
+
+### [2026-03-15] Gemini 모델 404 NOT_FOUND (gemini-1.5-flash)
+- **에러 메시지**: `404 NOT_FOUND: models/gemini-1.5-flash is not found for API version v1beta`
+- **발생 상황**: `ai_client.py`에서 `gemini-1.5-flash` 모델로 호출 시 발생
+- **원인**: `gemini-1.5-flash`는 해당 API 버전에서 지원 종료됨
+- **해결 방법**: `gemini-2.5-flash`로 모델명 변경 (계정에서 사용 가능한 모델은 `client.models.list()`로 확인)
+- **참고**: `gemini-2.0-flash`, `gemini-2.0-flash-lite`는 해당 계정의 free tier quota가 `limit: 0`으로 설정되어 사용 불가. `gemini-2.5-flash`만 정상 동작 확인
+
+---
+
+### [2026-03-15] Gemini 429 RESOURCE_EXHAUSTED (free tier limit: 0)
+- **에러 메시지**: `429 RESOURCE_EXHAUSTED: Quota exceeded, limit: 0, model: gemini-2.0-flash`
+- **발생 상황**: `gemini-2.0-flash` 및 `gemini-2.0-flash-lite` 호출 시 발생
+- **원인**: Google AI Studio에서 발급한 Key임에도 특정 모델의 free tier 할당량이 0으로 설정된 계정 상태
+- **해결 방법**: `gemini-2.5-flash` 모델 사용으로 우회 (해당 모델은 정상 동작 확인)
+- **참고**: 모델별 quota는 `https://ai.dev/rate-limit`에서 확인 가능. `limit: 0`은 사용량 초과가 아닌 할당량 미부여 상태
+
+---
+
 ### [2026-03-15] 봇 명령어 응답 중복 (두 번씩 응답)
 - **에러 메시지**: 직접적인 에러 없음 (`!ping` 등 명령어에 응답이 2회 전송됨)
 - **발생 상황**: `!ping` 입력 시 동일한 내용의 응답이 연속으로 두 번 수신

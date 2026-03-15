@@ -225,7 +225,7 @@ class CrawlService:
                     logger.warning(f"알림 전송 실패: 사용자 ID {user_id}")
 
             # AI 분석 예약 (API Key가 설정된 경우에만)
-            if notified_users and Settings.ANTHROPIC_API_KEY:
+            if notified_users and Settings.GEMINI_API_KEY:
                 post_url = post_data.get('full_url') or post_data.get('url', '')
                 post_title = post_data.get('title', '')
                 if post_url:

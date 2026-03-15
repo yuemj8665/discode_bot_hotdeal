@@ -18,6 +18,36 @@
 
 ## 변경 이력
 
+### [2026-03-15] AI 분석 실패 시 재시도 정책 추가
+- **변경 유형**: 기능 추가
+- **변경 내용**:
+  - `database/models.py`: `PendingAnalysis`에 `retry_count` 필드 추가
+  - `database/db.py`: `pending_analysis` 테이블에 `retry_count` 컬럼 추가 (마이그레이션 포함), `reschedule_failed_analysis()` 메서드 추가
+  - `services/analysis_service.py`: 실패 시 `retry_count < 3`이면 5분 후 재시도 예약, 3회 초과 시 `failed`로 확정
+- **변경 이유**: Gemini API 일시 오류 발생 시 분석이 영구 실패(`failed`)로 고착되는 문제 방지
+- **영향 범위**: `database/`, `services/analysis_service.py`
+- **재시도 정책**: 최대 3회, 실패 시 5분 후 `pending`으로 복귀 → `scheduled_at` 갱신
+
+---
+
+### [2026-03-15] Anthropic → Google Gemini 2.5 Flash AI 분석 기능 교체
+- **변경 유형**: 기능 변경
+- **변경 내용**:
+  - `services/ai_client.py`: `anthropic` SDK → `google-genai` SDK로 전면 교체, 비동기 `client.aio.models.generate_content` 사용, JSON 코드블록 파싱 처리 추가
+  - `config/settings.py`: `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`
+  - `bot.py`: `Settings.ANTHROPIC_API_KEY` → `Settings.GEMINI_API_KEY` (3곳)
+  - `services/crawl_service.py`: `Settings.ANTHROPIC_API_KEY` → `Settings.GEMINI_API_KEY`
+  - `requirements.txt`: `google-genai>=1.0.0` 추가
+  - `.env.example`: `GEMINI_API_KEY` 항목 및 발급 URL 업데이트
+  - `k8s/base/configmap.yaml`: 주석 업데이트
+  - `k8s/overlays/dev/kustomization.yaml`: 이미지 태그 `20260315_1900`으로 업데이트
+- **변경 이유**: Anthropic API Key 미발급 상태. Google Gemini 1.5 Flash 무료 티어(1500 req/day) 활용으로 비용 0원 운영 가능. 실제 사용량(하루 ~25건)은 무료 한도의 약 1.7%
+- **영향 범위**: `services/`, `config/`, `bot.py`, `requirements.txt`, `.env.example`, `k8s/`
+- **활성화 조건**: `.env` 또는 k8s Secret에 `GEMINI_API_KEY` 설정 시 자동 활성화
+- **사용 모델**: `gemini-2.5-flash` (gemini-1.5-flash, gemini-2.0-flash는 해당 계정에서 미지원)
+
+---
+
 ### [2026-03-15] AI 분석 기능 환경변수 설정 추가
 - **변경 유형**: 설정 변경
 - **변경 내용**:

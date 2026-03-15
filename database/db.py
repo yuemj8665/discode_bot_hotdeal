@@ -163,6 +163,7 @@ class Database:
                         post_title TEXT NOT NULL DEFAULT '',
                         scheduled_at TIMESTAMP NOT NULL,
                         status TEXT NOT NULL DEFAULT 'pending',
+                        retry_count INTEGER NOT NULL DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
@@ -195,6 +196,15 @@ class Database:
                     ''')
                 except Exception as e:
                     logger.debug(f"users 테이블 마이그레이션 (ai_analysis_alert): {e}")
+
+                # pending_analysis 테이블에 retry_count 컬럼 추가 (마이그레이션)
+                try:
+                    await conn.execute('''
+                        ALTER TABLE pending_analysis
+                        ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0
+                    ''')
+                except Exception as e:
+                    logger.debug(f"pending_analysis 테이블 마이그레이션 (retry_count): {e}")
                 
                 logger.info("데이터베이스 초기화 완료")
         except Exception as e:
@@ -875,6 +885,7 @@ class Database:
                         post_title=row['post_title'],
                         scheduled_at=row['scheduled_at'],
                         status=row['status'],
+                        retry_count=row['retry_count'],
                         created_at=row['created_at'],
                     )
                     for row in rows
@@ -893,6 +904,22 @@ class Database:
                 return result == "UPDATE 1"
         except Exception as e:
             logger.error(f"분석 상태 업데이트 오류: {e}", exc_info=True)
+            return False
+
+    async def reschedule_failed_analysis(self, analysis_id: int, retry_after_minutes: int = 5) -> bool:
+        """실패한 분석 항목을 N분 후 재시도 예약 (retry_count 증가, pending으로 복귀)"""
+        try:
+            async with self._pool.acquire() as conn:
+                result = await conn.execute('''
+                    UPDATE pending_analysis
+                    SET status = 'pending',
+                        scheduled_at = CURRENT_TIMESTAMP + ($1 * INTERVAL '1 minute'),
+                        retry_count = retry_count + 1
+                    WHERE id = $2
+                ''', retry_after_minutes, analysis_id)
+                return result == "UPDATE 1"
+        except Exception as e:
+            logger.error(f"분석 재시도 예약 오류: {e}", exc_info=True)
             return False
 
     async def record_notification(self, post_url: str, user_id: int) -> bool:
