@@ -18,6 +18,52 @@
 
 ## 변경 이력
 
+### [2026-03-16] 삭제된 게시글 처리 정책 수정
+- **변경 유형**: 버그 수정
+- **변경 내용**:
+  - `crawling/crawler.py` `_parse_post_detail()`: 삭제 감지 조건 정확화
+    - 기존: "삭제된 게시물" 등 부정확한 문구 감지
+    - 변경: `.error-page` CSS 클래스 또는 `"존재하지 않는 글입니다."` 문구 감지 (실제 Arca Live 삭제 HTML 기준)
+  - `crawling/crawler.py` `fetch_post_detail()`: HTTP 404/410 응답 시 `deleted=True` 반환 추가 (폴백)
+  - `services/analysis_service.py`: 삭제 감지 시 AI 요청 없이 `done` 처리, 삭제 알림 전송 제거
+  - `services/notification_service.py`: `send_deleted_post_notice()` 메서드 제거
+- **변경 이유**: Arca Live는 삭제된 게시글에도 HTTP 200을 반환하며 본문에 "존재하지 않는 글입니다." 텍스트를 포함하는 구조. 기존 404 HTTP 감지로는 실제 삭제 게시글이 탐지되지 않았음
+- **영향 범위**: `crawling/crawler.py`, `services/analysis_service.py`, `services/notification_service.py`
+- **삭제 처리 정책**: 삭제 감지 시 AI 미호출, 사용자 DM 미전송, status → done 으로 조용히 종료
+
+---
+
+### [2026-03-16] AI 프롬프트 판단 우선순위 변경 (댓글 수 1순위, 추천수 2순위)
+- **변경 유형**: 기능 개선
+- **변경 내용**:
+  - `services/ai_client.py` 프롬프트 수정
+    - 반응 지표 순서: 추천수 → 댓글수 / 댓글수(1순위) → 추천수(2순위)로 변경
+    - 판단 기준 문구: "추천수와 댓글의 분위기" → "댓글의 분위기를 1순위로, 추천수를 2순위로"로 명시
+- **변경 이유**: 추천수보다 댓글 내용이 구매 의사 판단에 더 직접적인 정보를 담고 있음
+- **영향 범위**: `services/ai_client.py`
+
+---
+
+### [2026-03-16] !사용법 명령어 추가
+- **변경 유형**: 기능 추가
+- **변경 내용**:
+  - `bot.py`: `!사용법` 명령어 추가 — 키워드/카테고리/기타 섹션으로 나뉜 Embed 응답 출력
+- **변경 이유**: 신규 사용자가 봇 명령어를 쉽게 파악할 수 있도록 사용법 안내 명령어 추가
+- **영향 범위**: `bot.py`
+
+---
+
+### [2026-03-16] README 봇 명령어 섹션 개편
+- **변경 유형**: 문서 개선
+- **변경 내용**:
+  - 봇 명령어를 시스템 / 키워드 / 카테고리 그룹으로 분리
+  - `!핫딜`, `/핫딜추가` 누락 명령어 추가 후 구현 예정 항목 제거
+  - `.env.example`: `GEMINI_API_KEY` → `GEMINI_API_KEY_1,2,3` 구조로 업데이트
+  - `docs/api_docs.md` 신규 생성 (Discord 명령어 API, DB API, Service API, AI Client API)
+- **영향 범위**: `README.md`, `.env.example`, `docs/api_docs.md`
+
+---
+
 ### [2026-03-15] Gemini 프롬프트 개선 - 커뮤니티 반응 기반 분석으로 변경
 - **변경 유형**: 기능 개선
 - **변경 내용**:
