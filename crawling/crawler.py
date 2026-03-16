@@ -419,7 +419,7 @@ class HotdealCrawler(BaseCrawler):
             'Connection': 'keep-alive',
         }
         timeout = aiohttp.ClientTimeout(total=30, connect=10)
-        result = {'vote_count': 0, 'comment_count': 0, 'comments': []}
+        result = {'vote_count': 0, 'comment_count': 0, 'comments': [], 'deleted': False}
 
         for attempt in range(3):
             try:
@@ -428,6 +428,10 @@ class HotdealCrawler(BaseCrawler):
                         if response.status == 200:
                             html = await response.text()
                             return self._parse_post_detail(html)
+                        elif response.status == 404:
+                            self.logger.info(f"게시글 삭제됨 (404): {post_url}")
+                            result['deleted'] = True
+                            return result
                         else:
                             self.logger.warning(f"게시글 상세 요청 실패: {response.status} ({post_url})")
                             if attempt < 2:
@@ -446,12 +450,20 @@ class HotdealCrawler(BaseCrawler):
         Returns:
             dict: vote_count(int), comment_count(int), comments(List[str])
         """
-        result = {'vote_count': 0, 'comment_count': 0, 'comments': []}
+        result = {'vote_count': 0, 'comment_count': 0, 'comments': [], 'deleted': False}
         if not html:
             return result
 
         try:
             soup = BeautifulSoup(html, 'lxml')
+
+            # 삭제된 게시글 감지
+            deleted_indicators = ['삭제된 게시물', '삭제된 글', '존재하지 않는 게시물', '없는 게시물']
+            page_text = soup.get_text()
+            if any(indicator in page_text for indicator in deleted_indicators):
+                self.logger.info("게시글 삭제 감지 (HTML 내 삭제 문구 확인)")
+                result['deleted'] = True
+                return result
 
             # 추천수 파싱 (여러 선택자 폴백)
             vote_selectors = [
