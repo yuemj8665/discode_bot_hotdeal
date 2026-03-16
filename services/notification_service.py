@@ -257,62 +257,6 @@ class NotificationService:
             logger.error(f"AI 분석 알림 전송 오류: 사용자 ID {user_id}, {e}", exc_info=True)
             return False
 
-    async def send_deleted_post_notice(
-        self,
-        user_id: int,
-        post_data: dict,
-    ) -> bool:
-        """
-        게시글 삭제 알림 전송
-
-        Args:
-            user_id: Discord 사용자 ID
-            post_data: 게시글 데이터 (title, full_url)
-
-        Returns:
-            bool: 전송 성공 여부
-        """
-        try:
-            user = await self._find_user(user_id)
-            if not user:
-                return False
-
-            post_url = self._build_post_url(post_data)
-            embed = discord.Embed(
-                title="🗑️ 게시글 삭제됨",
-                description=f"**{post_data.get('title', '')}**",
-                color=0x888888,
-                url=post_url if post_url.startswith(('http://', 'https://')) else None,
-            )
-            embed.add_field(name="링크", value=post_url or 'N/A', inline=False)
-            embed.set_footer(text="해당 게시글이 삭제되어 AI 분석을 진행할 수 없습니다.")
-
-            try:
-                await user.send(embed=embed)
-                logger.debug(f"삭제 알림 DM 전송: 사용자 {user_id}")
-                return True
-            except discord.Forbidden:
-                pass
-
-            for guild in self.bot.guilds:
-                member = guild.get_member(user_id)
-                if not member:
-                    continue
-                channel = await self._find_notification_channel(guild)
-                if not channel:
-                    continue
-                try:
-                    await channel.send(f"{member.mention}", embed=embed)
-                    return True
-                except discord.Forbidden:
-                    continue
-
-            return False
-
-        except Exception as e:
-            logger.error(f"삭제 알림 전송 오류: 사용자 ID {user_id}, {e}", exc_info=True)
-            return False
-
     def _build_analysis_embed(
         self, post_data: dict, ai_result: dict, post_url: str
     ) -> discord.Embed:

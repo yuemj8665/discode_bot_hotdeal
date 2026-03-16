@@ -428,8 +428,8 @@ class HotdealCrawler(BaseCrawler):
                         if response.status == 200:
                             html = await response.text()
                             return self._parse_post_detail(html)
-                        elif response.status == 404:
-                            self.logger.info(f"게시글 삭제됨 (404): {post_url}")
+                        elif response.status in (404, 410):
+                            self.logger.info(f"게시글 삭제됨 (HTTP {response.status}): {post_url}")
                             result['deleted'] = True
                             return result
                         else:
@@ -457,11 +457,9 @@ class HotdealCrawler(BaseCrawler):
         try:
             soup = BeautifulSoup(html, 'lxml')
 
-            # 삭제된 게시글 감지
-            deleted_indicators = ['삭제된 게시물', '삭제된 글', '존재하지 않는 게시물', '없는 게시물']
-            page_text = soup.get_text()
-            if any(indicator in page_text for indicator in deleted_indicators):
-                self.logger.info("게시글 삭제 감지 (HTML 내 삭제 문구 확인)")
+            # 삭제된 게시글 감지 (HTTP 200으로 응답하지만 error-page 포함)
+            if soup.select_one('.error-page') or '존재하지 않는 글입니다.' in soup.get_text():
+                self.logger.info("게시글 삭제 감지 (존재하지 않는 글)")
                 result['deleted'] = True
                 return result
 

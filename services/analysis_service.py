@@ -67,14 +67,9 @@ class AnalysisService:
         # 1. 개별 게시글 재크롤링 (댓글 + 추천수)
         detail = await self.crawler.fetch_post_detail(post_url)
 
-        # 삭제된 게시글 처리
+        # 삭제된 게시글 처리 — AI 요청 없이 done 처리
         if detail.get('deleted'):
             logger.info(f"삭제된 게시글 — 분석 건너뜀: '{post_title[:30]}'")
-            user_ids = await self.db.get_notified_users(post_url)
-            for user_id in user_ids:
-                await self.notification_service.send_deleted_post_notice(
-                    user_id, {'title': post_title, 'full_url': post_url}
-                )
             return
 
         vote_count = detail.get('vote_count', 0)
