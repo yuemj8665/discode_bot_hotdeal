@@ -68,21 +68,28 @@ class AIClient:
             ) if comments else "댓글 없음"
 
             prompt = f"""당신은 커뮤니티 반응 분석가입니다.
-제품에 대한 사전 지식은 사용하지 마세요. 오직 아래 댓글 반응과 추천수만을 근거로 판단해주세요.
+제품에 대한 사전 지식은 사용하지 마세요. 오직 아래 댓글 반응만을 근거로 판단해주세요.
 
 [게시글 제목]
 {title}
 
 [반응 지표]
-- 댓글수: {comment_count} (1순위 판단 기준)
-- 추천수: {vote_count} (2순위 판단 기준)
+- 댓글수: {comment_count}
 
 [유저 댓글 (최근 {len(comments[:20])}개)]
 {comments_text}
 
-댓글의 전반적인 분위기(긍정/부정/중립 비율, 구매 후기, 가격 반응 등)를 1순위로, 추천수를 2순위로 참고하여 판단하세요.
+댓글의 전반적인 분위기(긍정/부정/중립 비율, 구매 후기, 가격 반응 등)를 근거로 판단하세요.
 아래 JSON 형식으로만 응답해주세요. 다른 텍스트는 포함하지 마세요.
-{{"recommendation": "추천" 또는 "비추천", "reason": "5줄 이내의 판단 이유"}}"""
+{{
+  "recommendation": "추천" 또는 "비추천",
+  "reason": "5줄 이내의 판단 이유",
+  "positive_count": 긍정 댓글 수(정수),
+  "positive_reason": "긍정하는 종합적인 이유",
+  "negative_count": 부정 댓글 수(정수),
+  "negative_reason": "부정하는 종합적인 이유",
+  "neutral_count": 중립 댓글 수(정수)
+}}"""
 
             response = await client.aio.models.generate_content(
                 model="gemini-2.5-flash",
@@ -98,7 +105,8 @@ class AIClient:
                 content = content.strip()
 
             result = json.loads(content)
-            if "recommendation" in result and "reason" in result:
+            required_keys = {"recommendation", "reason", "positive_count", "positive_reason", "negative_count", "negative_reason", "neutral_count"}
+            if required_keys.issubset(result.keys()):
                 return result
 
             logger.warning(f"AI 응답 형식 불일치: {content}")

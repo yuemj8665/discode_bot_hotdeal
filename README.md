@@ -26,7 +26,7 @@ Discord에서 Arca Live 핫딜 게시판을 자동 모니터링하고 키워드 
 - **카테고리 관리**: 사용자별 카테고리 구독 추가 / 삭제 / 목록 조회
 - **중복 방지**: 마지막 게시글 datetime / URL / ID 기반 3단계 폴백으로 중복 알림 방지
 - **데이터 정리**: 24시간 이상 된 핫딜 데이터 자동 삭제
-- **AI 분석 2차 알림** *(선택)*: `GEMINI_API_KEY` 설정 시, 1차 알림 3시간 후 추천수 · 댓글을 재크롤링하여 Gemini 2.5 Flash가 추천/비추천 판단 및 이유를 2차 알림으로 전송. 실패 시 5분 후 자동 재시도 (최대 3회)
+- **AI 분석 2차 알림** *(선택)*: `GEMINI_API_KEY_1` 설정 시, 1차 알림 3시간 후 댓글을 재크롤링하여 Gemini 2.5 Flash가 추천/비추천 판단 · 이유 · 긍정/부정/중립 댓글 수 및 종합 이유를 2차 알림으로 전송. 실패 시 5분 후 자동 재시도 (최대 3회)
 
 ### 봇 명령어
 
@@ -38,6 +38,7 @@ Discord에서 Arca Live 핫딜 게시판을 자동 모니터링하고 키워드 
 |--------|------|
 | `!ping` | 봇 응답 속도 확인 |
 | `!정보` | 봇 정보 및 버전 확인 |
+| `!사용법` | 전체 명령어 안내 |
 
 #### 키워드 관리
 
@@ -66,7 +67,7 @@ Discord에서 Arca Live 핫딜 게시판을 자동 모니터링하고 키워드 
 1. 키워드 또는 카테고리 중 하나라도 매칭되면 알림 발송 (OR 조건)
 2. DM 전송 우선 → DM 불가 시 서버 지정 채널 or `general` 채널로 폴백
 3. `*` 키워드 등록 시 모든 핫딜에 매칭 (와일드카드)
-4. *(선택)* 1차 알림 3시간 후 Gemini AI가 추천수·댓글 기반으로 구매 추천 여부를 2차 알림으로 전송 (실패 시 5분 후 자동 재시도, 최대 3회)
+4. *(선택)* 1차 알림 3시간 후 Gemini AI가 댓글 기반으로 추천/비추천 및 긍정/부정/중립 분류 결과를 2차 알림으로 전송 (실패 시 5분 후 자동 재시도, 최대 3회)
 
 ---
 
@@ -265,7 +266,9 @@ pending_analysis (1) ──── (N) notification_history
 | `CRAWL_INTERVAL` | ❌ | `3600` | 크롤링 간격 (초) |
 | `LOG_LEVEL` | ❌ | `INFO` | 로그 레벨 |
 | `LOG_FILE` | ❌ | `hotdeal_bot.log` | 로그 파일명 |
-| `GEMINI_API_KEY` | ❌ | - | Google Gemini API Key (미설정 시 AI 분석 비활성화, 발급: aistudio.google.com) |
+| `GEMINI_API_KEY_1` | ❌ | - | Google Gemini API Key 1번 (미설정 시 AI 분석 비활성화, 발급: aistudio.google.com) |
+| `GEMINI_API_KEY_2` | ❌ | - | Google Gemini API Key 2번 (라운드로빈 부하 분산, 선택) |
+| `GEMINI_API_KEY_3` | ❌ | - | Google Gemini API Key 3번 (라운드로빈 부하 분산, 선택) |
 | `AI_ANALYSIS_DELAY_HOURS` | ❌ | `3` | AI 분석 실행 지연 시간 (시간 단위) |
 
 ### 로컬 실행 (venv)
@@ -321,7 +324,7 @@ kubectl create secret generic hotdeal-bot-secret \
 kubectl patch secret dev-hotdeal-bot-secret \
   -n hotdeal-bot-dev \
   --type='json' \
-  -p='[{"op":"add","path":"/data/GEMINI_API_KEY","value":"'$(echo -n "AIza..." | base64)'"}]'
+  -p='[{"op":"add","path":"/data/GEMINI_API_KEY_1","value":"'$(echo -n "AIza..." | base64)'"}]'
 
 # 3. ArgoCD Application 등록
 kubectl apply -f argocd/application.yaml
