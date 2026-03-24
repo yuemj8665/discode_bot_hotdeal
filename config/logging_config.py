@@ -62,6 +62,10 @@ def setup_logging():
     root_logger.handlers.clear()  # 기존 핸들러 제거
     root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
+
+    # SDK 내부 재시도 로그 활성화 (Gemini 실제 호출 횟수 추적용)
+    logging.getLogger('google_genai').setLevel(logging.DEBUG)
+    logging.getLogger('tenacity').setLevel(logging.DEBUG)
     
     # 로거 생성
     logger = logging.getLogger(__name__)
