@@ -22,7 +22,9 @@ spec:
             - configMapRef:
                 name: hotdeal-bot-config
             - secretRef:
-                name: hotdeal-bot-secret  # namePrefix로 인해 dev-hotdeal-bot-secret이 됨
+                name: hotdeal-bot-secret
+            - secretRef:
+                name: dev-hotdeal-bot-secret
           resources:
             requests:
               memory: "256Mi"
