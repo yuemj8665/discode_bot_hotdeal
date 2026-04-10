@@ -205,6 +205,15 @@ class Database:
                     ''')
                 except Exception as e:
                     logger.debug(f"pending_analysis 테이블 마이그레이션 (retry_count): {e}")
+
+                # pending_analysis 테이블에 post_store 컬럼 추가 (마이그레이션)
+                try:
+                    await conn.execute('''
+                        ALTER TABLE pending_analysis
+                        ADD COLUMN IF NOT EXISTS post_store TEXT NOT NULL DEFAULT ''
+                    ''')
+                except Exception as e:
+                    logger.debug(f"pending_analysis 테이블 마이그레이션 (post_store): {e}")
                 
                 logger.info("데이터베이스 초기화 완료")
         except Exception as e:
@@ -854,15 +863,15 @@ class Database:
     
     # ==================== AI 분석 관련 메서드 ====================
 
-    async def schedule_analysis(self, post_url: str, post_title: str, scheduled_at) -> bool:
+    async def schedule_analysis(self, post_url: str, post_title: str, scheduled_at, post_store: str = '') -> bool:
         """AI 분석 예약 등록 (이미 존재하면 무시)"""
         try:
             async with self._pool.acquire() as conn:
                 result = await conn.execute('''
-                    INSERT INTO pending_analysis (post_url, post_title, scheduled_at)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO pending_analysis (post_url, post_title, post_store, scheduled_at)
+                    VALUES ($1, $2, $3, $4)
                     ON CONFLICT (post_url) DO NOTHING
-                ''', post_url, post_title, scheduled_at)
+                ''', post_url, post_title, post_store, scheduled_at)
                 return result == "INSERT 0 1"
         except Exception as e:
             logger.error(f"분석 예약 등록 오류: {e}", exc_info=True)
@@ -883,6 +892,7 @@ class Database:
                         id=row['id'],
                         post_url=row['post_url'],
                         post_title=row['post_title'],
+                        post_store=row['post_store'],
                         scheduled_at=row['scheduled_at'],
                         status=row['status'],
                         retry_count=row['retry_count'],

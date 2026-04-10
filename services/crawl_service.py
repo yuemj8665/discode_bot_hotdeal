@@ -232,7 +232,8 @@ class CrawlService:
                     scheduled_at = datetime.now() + timedelta(
                         hours=Settings.AI_ANALYSIS_DELAY_HOURS
                     )
-                    await self.db.schedule_analysis(post_url, post_title, scheduled_at)
+                    post_store = post_data.get('store', '')
+                    await self.db.schedule_analysis(post_url, post_title, scheduled_at, post_store)
                     for user_id in notified_users:
                         await self.db.record_notification(post_url, user_id)
                     logger.debug(

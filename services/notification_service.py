@@ -53,11 +53,12 @@ class NotificationService:
                 value=", ".join(matched_categories),
                 inline=False
             )
-        embed.add_field(
-            name="링크",
-            value=post_url or 'N/A',
-            inline=False
-        )
+        if post_data.get('store'):
+            embed.add_field(
+                name="쇼핑몰",
+                value=post_data['store'],
+                inline=True
+            )
         if post_data.get('price'):
             embed.add_field(
                 name="가격",
@@ -70,6 +71,11 @@ class NotificationService:
                 value=post_data['category'],
                 inline=True
             )
+        embed.add_field(
+            name="링크",
+            value=post_url or 'N/A',
+            inline=False
+        )
         embed.set_footer(text=f"출처: {post_data.get('source', 'Arca Live')}")
         return embed
 
@@ -284,12 +290,28 @@ class NotificationService:
                 value=ai_result.get('reason', '-'),
                 inline=False,
             )
+            embed.add_field(
+                name=f"👍 긍정 ({ai_result.get('positive_count', 0)})",
+                value=ai_result.get('positive_reason', '-'),
+                inline=False,
+            )
+            embed.add_field(
+                name=f"👎 부정 ({ai_result.get('negative_count', 0)})",
+                value=ai_result.get('negative_reason', '-'),
+                inline=False,
+            )
+            embed.add_field(
+                name=f"😐 중립 ({ai_result.get('neutral_count', 0)})",
+                value='-',
+                inline=False,
+            )
 
-        embed.add_field(
-            name="추천수",
-            value=str(post_data.get('vote_count', 0)),
-            inline=True,
-        )
+        if post_data.get('store'):
+            embed.add_field(
+                name="쇼핑몰",
+                value=post_data['store'],
+                inline=True,
+            )
         embed.add_field(
             name="댓글수",
             value=str(post_data.get('comment_count', 0)),

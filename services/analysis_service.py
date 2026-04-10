@@ -101,6 +101,7 @@ class AnalysisService:
             'title': post_title,
             'full_url': post_url,
             'url': post_url,
+            'store': analysis.post_store,
             'vote_count': vote_count,
             'comment_count': comment_count,
         }

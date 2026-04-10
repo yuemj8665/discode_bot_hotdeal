@@ -125,6 +125,7 @@ class PendingAnalysis:
     id: Optional[int] = None
     post_url: str = ""
     post_title: str = ""
+    post_store: str = ""                       # 쇼핑몰
     scheduled_at: Optional[datetime] = None  # 생성시간 + 3시간
     status: str = "pending"                   # pending / processing / done / failed
     retry_count: int = 0                      # 재시도 횟수 (최대 3회)
