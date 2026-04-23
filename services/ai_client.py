@@ -56,18 +56,15 @@ class AIClient:
         if not self.enabled:
             return None
 
-        try:
-            from google import genai
-            import json
+        from google import genai
+        from google.genai.errors import ClientError
+        import json
 
-            api_key = self._next_key()
-            client = genai.Client(api_key=api_key)
+        comments_text = "\n".join(
+            f"- {c}" for c in comments[:20]
+        ) if comments else "댓글 없음"
 
-            comments_text = "\n".join(
-                f"- {c}" for c in comments[:20]
-            ) if comments else "댓글 없음"
-
-            prompt = f"""당신은 커뮤니티 반응 분석가입니다.
+        prompt = f"""당신은 커뮤니티 반응 분석가입니다.
 제품에 대한 사전 지식은 사용하지 마세요. 오직 아래 댓글 반응만을 근거로 판단해주세요.
 
 [게시글 제목]
@@ -91,36 +88,49 @@ class AIClient:
   "neutral_count": 중립 댓글 수(정수)
 }}"""
 
-            response = await client.aio.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-            )
+        # 503 발생 시 다른 키로 1회 재시도 (최대 2회 시도)
+        for attempt in range(2):
+            try:
+                api_key = self._next_key()
+                client = genai.Client(api_key=api_key)
 
-            content = response.text.strip()
-            # JSON 코드블록 제거 (```json ... ``` 형태 대응)
-            if content.startswith("```"):
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
+                response = await client.aio.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt,
+                )
 
-            result = json.loads(content)
-            required_keys = {"recommendation", "reason", "positive_count", "positive_reason", "negative_count", "negative_reason", "neutral_count"}
-            if required_keys.issubset(result.keys()):
-                return result
+                content = response.text.strip()
+                # JSON 코드블록 제거 (```json ... ``` 형태 대응)
+                if content.startswith("```"):
+                    content = content.split("```")[1]
+                    if content.startswith("json"):
+                        content = content[4:]
+                    content = content.strip()
 
-            logger.warning(f"AI 응답 형식 불일치: {content}")
-            return None
+                result = json.loads(content)
+                required_keys = {"recommendation", "reason", "positive_count", "positive_reason", "negative_count", "negative_reason", "neutral_count"}
+                if required_keys.issubset(result.keys()):
+                    return result
 
-        except ImportError:
-            logger.error("google-genai 패키지가 설치되지 않았습니다. pip install google-genai")
-            return None
-        except Exception as e:
-            # 429(사용량 제한)는 일시적 오류 — 상위로 던져서 재시도 대상으로 처리
-            # 사용량은 태평양 표준시(PST) 자정 기준 리셋
-            from google.genai.errors import ClientError
-            if isinstance(e, ClientError) and e.status_code == 429:
-                logger.warning(f"Gemini 사용량 제한 (429) — 재시도 예약: {e}")
-                raise
-            logger.error(f"AI 분석 오류: {e}", exc_info=True)
-            return None
+                logger.warning(f"AI 응답 형식 불일치: {content}")
+                return None
+
+            except ImportError:
+                logger.error("google-genai 패키지가 설치되지 않았습니다. pip install google-genai")
+                return None
+            except ClientError as e:
+                if e.status_code == 429:
+                    # 사용량 제한 — 상위로 던져서 재시도 대상으로 처리 (PST 자정 기준 리셋)
+                    logger.warning(f"Gemini 사용량 제한 (429) — 재시도 예약: {e}")
+                    raise
+                if e.status_code == 503 and attempt == 0:
+                    # 서버 과부하 — 다른 키로 즉시 1회 재시도
+                    logger.warning(f"Gemini 서버 과부하 (503) — 다른 키로 재시도 (attempt={attempt + 1})")
+                    continue
+                logger.error(f"AI 분석 오류: {e}", exc_info=True)
+                return None
+            except Exception as e:
+                logger.error(f"AI 분석 오류: {e}", exc_info=True)
+                return None
+
+        return None

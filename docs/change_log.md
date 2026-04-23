@@ -18,6 +18,72 @@
 
 ## 변경 이력
 
+### [2026-04-23] Gemini 503 에러 발생 시 다른 키로 즉시 1회 재시도
+- **변경 유형**: 버그 수정
+- **변경 내용**:
+  - `services/ai_client.py`: 503 발생 시 `return None` 대신 다른 API Key로 즉시 1회 재시도 로직 추가
+  - 기존: 예외 처리에서 429만 `raise`, 503 포함 나머지는 `return None`
+  - 변경: `for attempt in range(2)` 루프로 최대 2회 시도. 1차 503 → `_next_key()`로 다른 키 선택 후 2차 시도. 2차도 실패 시 `None` 반환
+- **변경 이유**: 로그 분석 결과 503(Gemini 서버 과부하)이 매일 10~17건 발생, 전체 에러율 20~30%에 해당. 503은 일시적 서버 과부하로 다른 키로 즉시 재시도하면 성공 가능성이 높음. 4개 키 라운드로빈 환경이므로 재시도 시 자연스럽게 다른 키가 선택됨
+- **영향 범위**: `services/ai_client.py`
+- **참고**: 503 에러는 Gemini 일일 쿼터(사용량)에 미포함 — 서버가 요청 처리 전 거부하는 것이므로 재시도가 쿼터를 추가 소모하지 않음. 15~21시(한국 시간)에 집중 발생하는 패턴 확인
+
+---
+
+### [2026-03-24] Gemini API Key 4번 추가 (라운드로빈 80 req/day 확보)
+- **변경 유형**: 기능 개선
+- **변경 내용**:
+  - `config/settings.py`: `GEMINI_API_KEY_4` 로드 추가
+  - k8s Secret: `GEMINI_API_KEY_4` 등록
+  - k8s 이미지 태그: `20260324_1750`으로 업데이트
+- **변경 이유**: 하루 최대 33건 요청 확인, Key 3개(60 req/day) 기준 초과 가능성 있음. Key 4개로 80 req/day 확보
+- **영향 범위**: `config/settings.py`, k8s Secret
+
+---
+
+### [2026-04-10] .dockerignore 추가 + deployment Secret 참조 수정
+- **변경 유형**: 버그 수정
+- **변경 내용**:
+  - `.dockerignore` 신규 생성: `.env` 파일이 Docker 이미지에 포함되던 문제 수정
+  - `k8s/base/deployment.yaml`: `secretRef`에 `dev-hotdeal-bot-secret` 명시 추가
+- **변경 이유**: `.dockerignore` 없어서 `.env`가 이미지에 포함되어 k8s Secret이 아닌 `.env` 기준으로 Gemini Key가 로드됨 → KEY_4 미반영. 또한 kustomize `namePrefix`는 외부 Secret 이름에 prefix를 적용하지 않아 `dev-hotdeal-bot-secret`이 Pod에 주입되지 않던 문제
+- **영향 범위**: `.dockerignore`, `k8s/base/deployment.yaml`
+
+---
+
+### [2026-04-10] 1차/2차 알림에 쇼핑몰 + 긍정/부정/중립 분석 결과 추가
+- **변경 유형**: 기능 추가
+- **변경 내용**:
+  - `services/notification_service.py`: 1차 알림 Embed에 쇼핑몰 필드 추가
+  - `services/notification_service.py`: 2차 알림 Embed에 쇼핑몰/긍정(수+이유)/부정(수+이유)/중립(수) 필드 추가, 추천수 제거
+  - `database/models.py`: `PendingAnalysis`에 `post_store` 필드 추가
+  - `database/db.py`: `pending_analysis` 테이블에 `post_store` 컬럼 마이그레이션 추가, `schedule_analysis()` / `get_due_analyses()` 수정
+  - `services/crawl_service.py`: `schedule_analysis()` 호출 시 `store` 전달
+  - `services/analysis_service.py`: 2차 알림 `post_data`에 `store` 포함
+- **변경 이유**: 어떤 쇼핑몰의 핫딜인지 1차/2차 알림 모두에서 바로 확인 가능하도록 개선. 긍정/부정/중립 분류 결과를 2차 알림에 표시하여 정보량 향상
+- **영향 범위**: `services/`, `database/`
+
+---
+
+### [2026-03-24] google_genai/tenacity DEBUG 로그 활성화
+- **변경 유형**: 기능 개선
+- **변경 내용**:
+  - `config/logging_config.py`: `google_genai`, `tenacity` 로거 DEBUG 레벨 설정 추가
+- **변경 이유**: Gemini Studio에서 Key 3개가 각 19건씩(총 57건) 카운트되는 반면 DB 기준 요청은 23건으로 불일치 확인. SDK 내부 tenacity 자동 재시도가 실제 API 호출을 부풀리는 것으로 추정 — 재시도 발생 여부 및 횟수를 로그로 추적하기 위해 활성화
+- **영향 범위**: `config/logging_config.py`
+- **후속 조치**: 며칠간 데이터 수집 후 건당 실제 호출 횟수 파악, SDK 재시도 제한 여부 결정
+
+---
+
+### [2026-03-23] hotdeal-postgres 컨테이너 삭제
+- **변경 유형**: 운영 설정 변경
+- **변경 내용**:
+  - `hotdeal-postgres` Docker 컨테이너 삭제 (`docker rm hotdeal-postgres`)
+- **변경 이유**: 실제 봇은 `study-postgres` (`host.docker.internal:5432/studydb`)를 사용 중. `hotdeal-postgres`는 `Created` 상태로 한 번도 기동된 적 없는 미사용 컨테이너였음
+- **영향 범위**: 운영 환경 (로컬 Docker). 봇 동작에 영향 없음
+
+---
+
 ### [2026-03-18] AI 프롬프트에서 추천수 제거 + 응답 필드 확장
 - **변경 유형**: 기능 개선
 - **변경 내용**:
