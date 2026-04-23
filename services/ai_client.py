@@ -123,14 +123,18 @@ class AIClient:
                     # 사용량 제한 — 상위로 던져서 재시도 대상으로 처리 (PST 자정 기준 리셋)
                     logger.warning(f"Gemini 사용량 제한 (429) — 재시도 예약: {e}")
                     raise
-                if e.status_code == 503 and attempt == 0:
-                    # 서버 과부하 — 다른 키로 즉시 1회 재시도
-                    logger.warning(f"Gemini 서버 과부하 (503) — 다른 키로 재시도 (attempt={attempt + 1})")
-                    continue
+                if e.status_code == 503:
+                    if attempt == 0:
+                        # 서버 과부하 — 다른 키로 즉시 1회 재시도
+                        logger.warning(f"Gemini 서버 과부하 (503) — 다른 키로 재시도")
+                        continue
+                    # 재시도 후에도 503 — 상위로 던져서 5분 후 재시도 예약
+                    logger.warning(f"Gemini 서버 과부하 (503) — 재시도 후에도 실패, 상위 전파: {e}")
+                    raise
                 logger.error(f"AI 분석 오류: {e}", exc_info=True)
                 return None
             except Exception as e:
                 logger.error(f"AI 분석 오류: {e}", exc_info=True)
-                return None
+                raise
 
         return None

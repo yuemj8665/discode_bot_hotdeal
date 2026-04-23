@@ -53,11 +53,29 @@ class AnalysisService:
                     )
                 else:
                     await self.db.update_analysis_status(analysis.id, 'failed')
-                    logger.warning(f"AI 분석 최대 재시도 초과, 포기 (id={analysis.id})")
+                    logger.warning(f"AI 분석 최대 재시도 초과, 분석 불가 알림 전송 (id={analysis.id})")
+                    await self._notify_analysis_failed(analysis)
 
         if processed > 0:
             logger.info(f"AI 분석 완료: {processed}개")
         return processed
+
+    async def _notify_analysis_failed(self, analysis) -> None:
+        """최종 실패 시 1차 알림 수신자에게 분석 불가 알림 전송"""
+        user_ids = await self.db.get_notified_users(analysis.post_url)
+        if not user_ids:
+            return
+        post_data = {
+            'title': analysis.post_title,
+            'full_url': analysis.post_url,
+            'url': analysis.post_url,
+            'store': analysis.post_store,
+            'vote_count': 0,
+            'comment_count': 0,
+        }
+        for user_id in user_ids:
+            await self.notification_service.send_analysis_result(user_id, post_data, None)
+        logger.info(f"분석 불가 알림 전송: '{analysis.post_title[:30]}' → {len(user_ids)}명")
 
     async def _process(self, analysis) -> None:
         """개별 분석 항목 처리"""
@@ -90,6 +108,10 @@ class AnalysisService:
             comments=comments,
         )
 
+        # 분석 결과 없음 — 상위로 던져서 재시도 대상으로 처리
+        if ai_result is None:
+            raise RuntimeError(f"AI 분석 결과 없음 (응답 형식 불일치): '{post_title[:30]}'")
+
         # 3. 1차 알림 수신자 조회
         user_ids = await self.db.get_notified_users(post_url)
         if not user_ids:
@@ -113,5 +135,5 @@ class AnalysisService:
 
         logger.info(
             f"2차 알림 전송 완료: '{post_title[:30]}' → {len(user_ids)}명 "
-            f"(AI: {ai_result['recommendation'] if ai_result else 'N/A'})"
+            f"(AI: {ai_result['recommendation']})"
         )

@@ -18,14 +18,23 @@
 
 ## 변경 이력
 
-### [2026-04-23] Gemini 503 에러 발생 시 다른 키로 즉시 1회 재시도
-- **변경 유형**: 버그 수정
+### [2026-04-23] Gemini 503 오류 처리 개선 — 재시도 후 최종 실패 시에만 분석 불가 알림 발송
+- **변경 유형**: 버그 수정 / 기능 개선
 - **변경 내용**:
-  - `services/ai_client.py`: 503 발생 시 `return None` 대신 다른 API Key로 즉시 1회 재시도 로직 추가
-  - 기존: 예외 처리에서 429만 `raise`, 503 포함 나머지는 `return None`
-  - 변경: `for attempt in range(2)` 루프로 최대 2회 시도. 1차 503 → `_next_key()`로 다른 키 선택 후 2차 시도. 2차도 실패 시 `None` 반환
-- **변경 이유**: 로그 분석 결과 503(Gemini 서버 과부하)이 매일 10~17건 발생, 전체 에러율 20~30%에 해당. 503은 일시적 서버 과부하로 다른 키로 즉시 재시도하면 성공 가능성이 높음. 4개 키 라운드로빈 환경이므로 재시도 시 자연스럽게 다른 키가 선택됨
-- **영향 범위**: `services/ai_client.py`
+  - `services/ai_client.py`: 503 발생 시 다른 키로 즉시 1회 재시도. 재시도도 503이면 `return None` → `raise`로 변경하여 상위 재시도 로직 진입
+  - `services/analysis_service.py`: `ai_result is None`이면 `raise RuntimeError` — 응답 형식 불일치도 재시도 대상으로 처리
+  - `services/analysis_service.py`: `_notify_analysis_failed()` 신규 메서드 추가 — 최종 실패(retry_count 초과) 시에만 호출, DB에서 수신자 조회 후 분석 불가 알림 전송
+  - `services/analysis_service.py`: 기존 `_process()`에서 `ai_result=None`으로 즉시 알림을 발송하던 로직 제거
+- **변경 이유**: 로그 분석 결과 503(Gemini 서버 과부하)이 매일 10~17건 발생, 에러율 20~30%. 기존에는 503 발생 즉시 "분석 불가" 알림을 발송했으나, 일시적 오류임에도 사용자에게 바로 실패 알림이 전달되는 문제. 최대 3회(5분 간격) 재시도 후 최종 실패 시에만 알림 발송하도록 변경
+- **영향 범위**: `services/ai_client.py`, `services/analysis_service.py`
+- **재시도 흐름**:
+  ```
+  503 발생
+    └─ 즉시 다른 키로 1회 재시도 (ai_client 내부)
+         └─ 성공 → 정상 2차 알림
+         └─ 실패 → raise → analysis_service 5분 후 재시도 (최대 3회)
+              └─ 3회 모두 실패 → _notify_analysis_failed() → "분석 불가" 알림 발송
+  ```
 - **참고**: 503 에러는 Gemini 일일 쿼터(사용량)에 미포함 — 서버가 요청 처리 전 거부하는 것이므로 재시도가 쿼터를 추가 소모하지 않음. 15~21시(한국 시간)에 집중 발생하는 패턴 확인
 
 ---
