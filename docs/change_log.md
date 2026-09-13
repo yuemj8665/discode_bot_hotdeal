@@ -18,6 +18,31 @@
 
 ## 변경 이력
 
+### [2026-09-13] 애플 리퍼비쉬 MacBook Pro 감시 태스크 추가 (수신자는 `애플리퍼` 키워드 등록자)
+- **변경 유형**: 기능 추가
+- **변경 내용**:
+  - `services/apple_refurb_watcher.py` 신규: 애플 한국 리퍼비쉬 Mac 페이지(`/kr/shop/refurbished/mac`)를 주기 크롤링. 임베디드 `tiles` JSON 파싱(1순위) + no-js HTML 폴백. 부품번호 스냅샷 비교로 신규 재고 감지, 조건 매칭 시 트리거 키워드 등록자 전원에게 DM 발송. 등록자 0명이면 크롤링 자체를 건너뜀
+  - `database/db.py`: `apple_refurb_snapshot` 테이블 추가, `get_refurb_snapshot()` / `replace_refurb_snapshot()` 메서드 추가. 첫 실행 여부는 `crawl_state`의 `apple_refurb` 행으로 판별
+  - `services/notification_service.py`: `send_refurb_alert()` / `_build_refurb_embed()` 추가 (가격·메모리·저장용량·칩·화면·부품번호 표시, 정보 없는 필드는 "정보 없음")
+  - `config/settings.py`: `APPLE_REFURB_*` 환경변수 8개 추가. 수신자는 `APPLE_REFURB_TRIGGER_KEYWORD`(기본 `애플리퍼`)를 `!키워드 추가`로 등록한 사용자 — 기존 `get_users_by_keyword()` 재활용
+  - `bot.py`: `apple_refurb_task` (기본 10분 주기) 추가
+  - `.env.example`, `k8s/base/configmap.yaml`: 트리거 키워드·조건 기본값 추가 (Secret 변경 없음)
+  - `docs/apple_refurb_watcher_plan.md`: 기획 산출물
+  - 테스트: 유닛 25개(`tests/unit/test_apple_refurb_watcher.py`) + 통합 4개(`TestRefurbSnapshot`) 추가 → 총 102개 통과
+- **변경 이유**: 운영자가 리퍼비쉬 MacBook Pro 14인치(메모리 64GB 이상, 저장 1TB 이상, M3/M4/M5)를 1대 구매하려 함. 재고가 예고 없이 올라오므로 기존 24시간 기동 봇에 감시를 가볍게 부착. 다중 크롤러 리팩토링은 하지 않음
+- **영향 범위**: `services/`, `database/db.py`, `config/settings.py`, `bot.py`, `k8s/base/configmap.yaml`, `.env.example`, `tests/`, `docs/`
+- **설계 결정**:
+  - 수신자 관리는 **기존 키워드 기능 재활용** (초안은 Secret의 `APPLE_REFURB_USER_ID`였으나 변경). 켜기 `!키워드 추가 애플리퍼`, 끄기 `!키워드 삭제 애플리퍼` — Secret 수정·파드 재시작 불필요
+  - 기존 키워드 매칭 파이프라인에는 태우지 않음: 제목에 메모리·용량이 없어 조건 표현 불가, `*`·`맥북` 등록자에게 알림 유출, 댓글 없는 페이지에 AI 2차 분석 예약 발생
+  - 필터 값이 없는 항목(예: 메모리 정보 누락)은 **알림을 보내는 쪽**으로 처리 — 일회성 구매에서는 놓치는 것이 오탐보다 손해
+  - 파싱 결과 0개면 스냅샷을 갱신하지 않음 — 다음 회차에 전체 재고가 "신규"로 잡히는 오탐 방지
+  - 첫 실행은 알림 없이 스냅샷만 저장 — 배포 직후 기존 재고 3개가 알림으로 쏟아지는 것 방지
+  - 품절 후 재입고는 스냅샷에서 사라졌다가 다시 나타나므로 재알림됨 (의도된 동작)
+  - 기존 파이프라인(키워드 매칭, hotdeals 저장, AI 2차 분석)은 전혀 거치지 않음
+- **켜기/끄기**: 디스코드에서 `!키워드 추가 애플리퍼` / `!키워드 삭제 애플리퍼`
+
+---
+
 ### [2026-04-23] Gemini 503 오류 처리 개선 — 재시도 후 최종 실패 시에만 분석 불가 알림 발송
 - **변경 유형**: 버그 수정 / 기능 개선
 - **변경 내용**:

@@ -10,7 +10,7 @@ import logging
 from config import Settings, setup_logging
 from database import Database
 from crawling import HotdealCrawler
-from services import CrawlService, NotificationService, AnalysisService
+from services import CrawlService, NotificationService, AnalysisService, AppleRefurbWatcher
 
 # 로깅 설정
 logger = setup_logging()
@@ -33,6 +33,7 @@ crawler = HotdealCrawler(db=db)
 crawl_service = CrawlService(crawler, db)
 notification_service = NotificationService(bot, db)
 analysis_service = AnalysisService(crawler, db, notification_service)
+apple_refurb_watcher = AppleRefurbWatcher(db, notification_service)
 
 
 @tasks.loop(hours=1)
@@ -55,6 +56,15 @@ async def analysis_task():
         await analysis_service.run()
     except Exception as e:
         logger.error(f"AI 분석 태스크 오류: {e}", exc_info=True)
+
+
+@tasks.loop(minutes=Settings.APPLE_REFURB_INTERVAL_MINUTES)
+async def apple_refurb_task():
+    """애플 리퍼비쉬 재고 감시 (트리거 키워드 등록자가 있을 때만 크롤링)"""
+    try:
+        await apple_refurb_watcher.run()
+    except Exception as e:
+        logger.error(f"애플 리퍼비쉬 감시 태스크 오류: {e}", exc_info=True)
 
 
 @tasks.loop(minutes=1)
@@ -110,6 +120,15 @@ async def on_ready():
     if not cleanup_task.is_running():
         cleanup_task.start()
         logger.info("데이터 정리 태스크 시작")
+
+    # 애플 리퍼비쉬 감시 태스크 시작 (트리거 키워드 등록자 없으면 내부에서 즉시 반환)
+    if not apple_refurb_task.is_running():
+        apple_refurb_task.start()
+        logger.info(
+            f"애플 리퍼비쉬 감시 태스크 시작 "
+            f"({Settings.APPLE_REFURB_INTERVAL_MINUTES}분 주기, "
+            f"트리거 키워드 '{Settings.APPLE_REFURB_TRIGGER_KEYWORD}')"
+        )
 
     # AI 분석 태스크 시작 (API Key 설정 여부와 무관하게 시작, 내부에서 Key 체크)
     if not analysis_task.is_running():

@@ -21,6 +21,7 @@ async def db():
         await conn.execute("DELETE FROM keywords")
         await conn.execute("DELETE FROM hotdeals")
         await conn.execute("DELETE FROM crawl_state")
+        await conn.execute("DELETE FROM apple_refurb_snapshot")
         await conn.execute("DELETE FROM notification_channels")
         await conn.execute("DELETE FROM users")
     await database.close()
@@ -312,3 +313,44 @@ class TestCategory:
         await db.delete_user(111)
         categories = await db.get_categories(111)
         assert categories == []
+
+
+# ==================== 애플 리퍼비쉬 스냅샷 ====================
+
+class TestRefurbSnapshot:
+    @pytest.mark.asyncio
+    async def test_empty_snapshot(self, db):
+        assert await db.get_refurb_snapshot() == {}
+
+    @pytest.mark.asyncio
+    async def test_replace_inserts_items(self, db):
+        ok = await db.replace_refurb_snapshot([
+            {'part_number': 'A/1', 'title': 't1', 'price': '₩1', 'url': 'u1'},
+            {'part_number': 'B/2', 'title': 't2', 'price': '₩2', 'url': 'u2'},
+        ])
+        assert ok is True
+        snap = await db.get_refurb_snapshot()
+        assert set(snap) == {'A/1', 'B/2'}
+        assert snap['A/1']['title'] == 't1'
+
+    @pytest.mark.asyncio
+    async def test_replace_removes_missing_and_updates_existing(self, db):
+        await db.replace_refurb_snapshot([
+            {'part_number': 'A/1', 'title': 't1', 'price': '₩1', 'url': 'u1'},
+            {'part_number': 'B/2', 'title': 't2', 'price': '₩2', 'url': 'u2'},
+        ])
+        first_seen = (await db.get_refurb_snapshot())['A/1']['first_seen_at']
+        await db.replace_refurb_snapshot([
+            {'part_number': 'A/1', 'title': 't1-new', 'price': '₩9', 'url': 'u1'},
+            {'part_number': 'C/3', 'title': 't3', 'price': '₩3', 'url': 'u3'},
+        ])
+        snap = await db.get_refurb_snapshot()
+        assert set(snap) == {'A/1', 'C/3'}
+        assert snap['A/1']['price'] == '₩9'
+        assert snap['A/1']['first_seen_at'] == first_seen
+
+    @pytest.mark.asyncio
+    async def test_replace_with_empty_list_clears(self, db):
+        await db.replace_refurb_snapshot([{'part_number': 'A/1', 'title': '', 'price': '', 'url': ''}])
+        await db.replace_refurb_snapshot([])
+        assert await db.get_refurb_snapshot() == {}

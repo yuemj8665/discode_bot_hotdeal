@@ -4,7 +4,7 @@
 """
 import asyncpg
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 from urllib.parse import urlparse
 from .models import Hotdeal, User, Keyword, Category, PendingAnalysis
@@ -215,6 +215,18 @@ class Database:
                 except Exception as e:
                     logger.debug(f"pending_analysis 테이블 마이그레이션 (post_store): {e}")
                 
+                # apple_refurb_snapshot 테이블 생성 (애플 리퍼비쉬 재고 스냅샷)
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS apple_refurb_snapshot (
+                        part_number TEXT PRIMARY KEY,
+                        title TEXT NOT NULL DEFAULT '',
+                        price TEXT NOT NULL DEFAULT '',
+                        url TEXT NOT NULL DEFAULT '',
+                        first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+
                 logger.info("데이터베이스 초기화 완료")
         except Exception as e:
             logger.error(f"데이터베이스 초기화 오류: {e}", exc_info=True)
@@ -833,6 +845,56 @@ class Database:
         except Exception as e:
             logger.error(f"카테고리로 사용자 조회 오류: {e}", exc_info=True)
             return []
+
+    # ==================== 애플 리퍼비쉬 스냅샷 메서드 ====================
+
+    async def get_refurb_snapshot(self) -> Dict[str, dict]:
+        """현재 저장된 리퍼비쉬 재고 스냅샷 조회 ({part_number: row})"""
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT part_number, title, price, url, first_seen_at, updated_at
+                    FROM apple_refurb_snapshot
+                ''')
+                return {row['part_number']: dict(row) for row in rows}
+        except Exception as e:
+            logger.error(f"리퍼비쉬 스냅샷 조회 오류: {e}", exc_info=True)
+            return {}
+
+    async def replace_refurb_snapshot(self, items: List[dict]) -> bool:
+        """
+        리퍼비쉬 재고 스냅샷을 현재 목록으로 교체
+        - 목록에 없는 부품번호는 삭제 (품절)
+        - 목록에 있는 부품번호는 upsert (first_seen_at 유지)
+        """
+        try:
+            part_numbers = [item['part_number'] for item in items if item.get('part_number')]
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    if part_numbers:
+                        await conn.execute('''
+                            DELETE FROM apple_refurb_snapshot
+                            WHERE NOT (part_number = ANY($1::text[]))
+                        ''', part_numbers)
+                    else:
+                        await conn.execute('DELETE FROM apple_refurb_snapshot')
+                    for item in items:
+                        if not item.get('part_number'):
+                            continue
+                        await conn.execute('''
+                            INSERT INTO apple_refurb_snapshot (part_number, title, price, url)
+                            VALUES ($1, $2, $3, $4)
+                            ON CONFLICT (part_number) DO UPDATE
+                            SET title = EXCLUDED.title,
+                                price = EXCLUDED.price,
+                                url = EXCLUDED.url,
+                                updated_at = CURRENT_TIMESTAMP
+                        ''', item['part_number'], item.get('title', ''),
+                             item.get('price', ''), item.get('url', ''))
+            return True
+        except Exception as e:
+            logger.error(f"리퍼비쉬 스냅샷 갱신 오류: {e}", exc_info=True)
+            return False
 
     # ==================== 알림 채널 관리 메서드 ====================
     

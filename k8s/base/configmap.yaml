@@ -16,6 +16,15 @@ data:
   # AI 분석 설정 (GEMINI_API_KEY는 Secret에서 주입)
   AI_ANALYSIS_DELAY_HOURS: "3"
   
+  # 애플 리퍼비쉬 감시 (트리거 키워드 등록자에게만 알림, 등록자 없으면 크롤링 안 함)
+  APPLE_REFURB_TRIGGER_KEYWORD: "애플리퍼"
+  APPLE_REFURB_INTERVAL_MINUTES: "10"
+  APPLE_REFURB_MODEL: "macbookpro"
+  APPLE_REFURB_SCREEN: "14inch"
+  APPLE_REFURB_MIN_MEMORY_GB: "64"
+  APPLE_REFURB_MIN_STORAGE_GB: "1024"
+  APPLE_REFURB_CHIPS: "M3,M4,M5"
+
   # 로깅 설정
   LOG_LEVEL: "INFO"
   LOG_FILE: "hotdeal_bot.log"

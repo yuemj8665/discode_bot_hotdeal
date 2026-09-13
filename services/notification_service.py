@@ -320,3 +320,76 @@ class NotificationService:
         embed.add_field(name="링크", value=post_url or 'N/A', inline=False)
         embed.set_footer(text="1차 알림 후 3시간 뒤 분석 결과입니다.")
         return embed
+
+    async def send_refurb_alert(self, user_id: int, item: dict) -> bool:
+        """
+        애플 리퍼비쉬 조건 일치 재고 알림 (운영자 1인용)
+
+        Args:
+            user_id: Discord 사용자 ID
+            item: AppleRefurbWatcher.parse() 항목
+
+        Returns:
+            bool: 전송 성공 여부
+        """
+        try:
+            user = await self._find_user(user_id)
+            if not user:
+                logger.warning(f"리퍼비쉬 알림: 사용자 ID {user_id}를 찾을 수 없음")
+                return False
+
+            embed = self._build_refurb_embed(item)
+
+            try:
+                await user.send(embed=embed)
+                logger.info(f"리퍼비쉬 알림 DM 전송: {item.get('part_number')} → {user_id}")
+                return True
+            except discord.Forbidden:
+                logger.debug(f"리퍼비쉬 알림 DM 실패, 채널 폴백: {user_id}")
+
+            for guild in self.bot.guilds:
+                member = guild.get_member(user_id)
+                if not member:
+                    continue
+                channel = await self._find_notification_channel(guild)
+                if not channel:
+                    continue
+                try:
+                    await channel.send(f"{member.mention} 🍎 리퍼비쉬 입고!", embed=embed)
+                    return True
+                except discord.Forbidden:
+                    continue
+            return False
+
+        except Exception as e:
+            logger.error(f"리퍼비쉬 알림 전송 오류: 사용자 ID {user_id}, {e}", exc_info=True)
+            return False
+
+    def _build_refurb_embed(self, item: dict) -> discord.Embed:
+        """리퍼비쉬 알림 Embed 생성. 정보 없는 필드는 '정보 없음'으로 표시."""
+        url = item.get('url') or ''
+        embed = discord.Embed(
+            title="🍎 애플 리퍼비쉬 입고 — 조건 일치",
+            description=f"**{item.get('title', '')}**",
+            color=0x1D1D1F,
+            url=url if url.startswith(('http://', 'https://')) else None,
+        )
+
+        def fmt_gb(value):
+            if value is None:
+                return '정보 없음'
+            return f"{value // 1024}TB" if value >= 1024 and value % 1024 == 0 else f"{value}GB"
+
+        embed.add_field(name="가격", value=item.get('price') or '정보 없음', inline=True)
+        embed.add_field(name="메모리", value=fmt_gb(item.get('memory_gb')), inline=True)
+        embed.add_field(name="저장용량", value=fmt_gb(item.get('storage_gb')), inline=True)
+        embed.add_field(name="칩", value=item.get('chip') or '정보 없음', inline=True)
+        embed.add_field(
+            name="화면",
+            value=(item.get('screen') or '정보 없음').replace('inch', '인치'),
+            inline=True,
+        )
+        embed.add_field(name="부품번호", value=item.get('part_number') or '-', inline=True)
+        embed.add_field(name="링크", value=url or 'N/A', inline=False)
+        embed.set_footer(text="리퍼비쉬 재고는 빠르게 소진됩니다. 바로 확인하세요.")
+        return embed

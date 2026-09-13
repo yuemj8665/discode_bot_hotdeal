@@ -288,6 +288,20 @@ N일 이상 된 분석 항목 삭제.
 
 ---
 
+### 2-10. 애플 리퍼비쉬 스냅샷 (apple_refurb_snapshot)
+
+#### `get_refurb_snapshot() -> Dict[str, dict]`
+현재 저장된 리퍼비쉬 재고 스냅샷 반환. 키는 부품번호, 값은 행(dict).
+
+#### `replace_refurb_snapshot(items: List[dict]) -> bool`
+스냅샷을 현재 목록으로 교체. 목록에 없는 부품번호 삭제, 있는 것은 upsert(`first_seen_at` 유지). 트랜잭션으로 처리.
+
+| 파라미터 | 타입 | 설명 |
+|----------|------|------|
+| `items` | `List[dict]` | `part_number`, `title`, `price`, `url` 키를 가진 항목 목록 |
+
+---
+
 ## 3. Service API
 
 ### 3-1. CrawlService
@@ -337,6 +351,11 @@ AI 2차 분석 알림 전송.
 
 ---
 
+#### `send_refurb_alert(user_id: int, post_data: dict) -> bool`
+애플 리퍼비쉬 조건 일치 재고 알림. DM 우선, 실패 시 채널 폴백. Embed에 가격·메모리·저장용량·칩·화면·부품번호·링크 표시. 정보 없는 필드는 "정보 없음".
+
+---
+
 ### 3-3. AnalysisService
 
 **파일**: `services/analysis_service.py`
@@ -349,6 +368,40 @@ AI 2차 분석 알림 전송.
 **재시도 정책**:
 - 처리 중 예외 발생 시 `retry_count < 3` → 5분 후 재시도 예약
 - `retry_count >= 3` → `failed` 확정
+
+---
+
+### 3-4. AppleRefurbWatcher
+
+**파일**: `services/apple_refurb_watcher.py`
+
+애플 리퍼비쉬 재고 감시. 수신자는 `Settings.APPLE_REFURB_TRIGGER_KEYWORD`(기본 `애플리퍼`)를 등록한 사용자(`Database.get_users_by_keyword()`). 등록자가 없으면 `run()`은 크롤링 없이 0을 반환.
+
+#### `fetch(max_retries: int = 3) -> str`
+`https://www.apple.com/kr/shop/refurbished/mac` HTML 반환. 실패 시 빈 문자열.
+
+#### `parse(html: str) -> List[dict]` *(staticmethod)*
+임베디드 `"tiles"` JSON을 `json.JSONDecoder.raw_decode`로 파싱. 실패 시 `.rf-refurb-category-grid-no-js` HTML 폴백.
+
+| 반환 항목 키 | 타입 | 설명 |
+|--------------|------|------|
+| `part_number` | `str` | 부품번호 (예: `G1MLAKH/A`) |
+| `title` | `str` | 상품명 |
+| `price` / `price_raw` | `str` / `int\|None` | 표시 가격 / 정수 가격(원) |
+| `url` | `str` | 절대 URL |
+| `model` / `screen` | `str\|None` | `macbookpro`, `14inch` 등 |
+| `storage_gb` / `memory_gb` | `int\|None` | GB 단위 (1TB = 1024) |
+| `chip` | `str\|None` | 제목에서 추출한 `M3`/`M4`/`M5` |
+
+#### `matches(item: dict, criteria: dict = None) -> bool` *(staticmethod)*
+조건 판별. `criteria` 생략 시 `default_criteria()`(환경변수 기반). **값이 None인 필드는 통과**시킨다.
+
+#### `run() -> int`
+1회 감시 실행. 발송한 알림 수(항목 × 수신자) 반환.
+- 트리거 키워드 등록자 0명: 크롤링 없이 종료
+- 첫 실행(`crawl_state`에 `apple_refurb` 없음): 알림 없이 스냅샷 저장
+- 파싱 결과 0개: 스냅샷 갱신하지 않고 종료
+- 신규 부품번호 중 조건 일치 → 등록자 전원에게 `NotificationService.send_refurb_alert()`
 
 ---
 

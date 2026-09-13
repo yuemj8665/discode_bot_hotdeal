@@ -27,6 +27,7 @@ Discord에서 Arca Live 핫딜 게시판을 자동 모니터링하고 키워드 
 - **중복 방지**: 마지막 게시글 datetime / URL / ID 기반 3단계 폴백으로 중복 알림 방지
 - **데이터 정리**: 24시간 이상 된 핫딜 데이터 자동 삭제
 - **AI 분석 2차 알림** *(선택)*: `GEMINI_API_KEY_1` 설정 시, 1차 알림 3시간 후 댓글을 재크롤링하여 Gemini 2.5 Flash가 추천/비추천 판단 · 이유 · 긍정/부정/중립 댓글 수 및 종합 이유를 2차 알림으로 전송. 실패 시 5분 후 자동 재시도 (최대 3회)
+- **애플 리퍼비쉬 감시** *(운영자용)*: `!키워드 추가 애플리퍼`를 등록한 사용자에게만, 애플 한국 리퍼비쉬 Mac 페이지를 10분마다 확인해 조건(기본: MacBook Pro 14인치 · 메모리 64GB 이상 · 저장 1TB 이상 · M3/M4/M5)에 맞는 새 재고가 올라오면 DM 알림. 등록자가 없으면 크롤링하지 않음. 기획: `docs/apple_refurb_watcher_plan.md`
 
 ### 봇 명령어
 
@@ -98,14 +99,16 @@ discode_bot_hotdeal/
 │   ├── crawl_service.py      # 크롤링 파이프라인 (fetch → filter → save → notify)
 │   ├── notification_service.py # Discord 알림 전송
 │   ├── analysis_service.py   # AI 분석 2차 알림 서비스
-│   └── ai_client.py          # Google Gemini API 클라이언트
+│   ├── ai_client.py          # Google Gemini API 클라이언트
+│   └── apple_refurb_watcher.py # 애플 리퍼비쉬 재고 감시 (트리거 키워드 등록자용)
 ├── utils/                    # 유틸리티 모듈
 │   └── helpers.py
 ├── tests/                    # 자동화 테스트
 │   ├── conftest.py
 │   ├── unit/
 │   │   ├── test_crawler.py
-│   │   └── test_crawl_service.py
+│   │   ├── test_crawl_service.py
+│   │   └── test_apple_refurb_watcher.py
 │   └── integration/
 │       └── test_database.py
 ├── k8s/                      # Kubernetes 매니페스트
@@ -121,6 +124,7 @@ discode_bot_hotdeal/
 └── docs/                     # 문서
     ├── error_log.md          # 에러 이벤트 기록
     ├── change_log.md         # 변경 로그
+    ├── apple_refurb_watcher_plan.md # 애플 리퍼비쉬 감시 기획 산출물
     └── test_results/         # 테스트 결과 파일
 ```
 
@@ -225,6 +229,21 @@ AI 분석 대기 항목을 저장합니다.
 
 - UNIQUE(post_url, user_id): 동일 게시글에 동일 사용자 중복 기록 방지
 
+#### apple_refurb_snapshot *(애플 리퍼비쉬 감시 선택 기능)*
+애플 리퍼비쉬 페이지의 현재 재고 스냅샷입니다. 매 회차 이 테이블과 비교해 새 부품번호를 찾습니다.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| `part_number` | TEXT | 애플 부품번호 (PK, 예: `G1MLAKH/A`) |
+| `title` | TEXT | 상품명 |
+| `price` | TEXT | 표시 가격 (예: `₩4,282,000`) |
+| `url` | TEXT | 상품 페이지 URL |
+| `first_seen_at` | TIMESTAMP | 처음 발견된 시각 (upsert 시 유지) |
+| `updated_at` | TIMESTAMP | 마지막 갱신 시각 |
+
+- 목록에서 사라진 부품번호는 삭제 (품절), 다시 나타나면 신규로 재알림
+- 첫 실행 여부는 `crawl_state`의 `apple_refurb` 행 존재로 판별
+
 ### 테이블 관계
 
 ```
@@ -270,6 +289,14 @@ pending_analysis (1) ──── (N) notification_history
 | `GEMINI_API_KEY_2` | ❌ | - | Google Gemini API Key 2번 (라운드로빈 부하 분산, 선택) |
 | `GEMINI_API_KEY_3` | ❌ | - | Google Gemini API Key 3번 (라운드로빈 부하 분산, 선택) |
 | `AI_ANALYSIS_DELAY_HOURS` | ❌ | `3` | AI 분석 실행 지연 시간 (시간 단위) |
+| `APPLE_REFURB_TRIGGER_KEYWORD` | ❌ | `애플리퍼` | 이 키워드를 등록한 사용자가 리퍼비쉬 알림 수신자 (등록자 없으면 크롤링 안 함) |
+| `APPLE_REFURB_INTERVAL_MINUTES` | ❌ | `10` | 리퍼비쉬 감시 주기 (분) |
+| `APPLE_REFURB_MODEL` | ❌ | `macbookpro` | 리퍼비쉬 모델 필터 |
+| `APPLE_REFURB_SCREEN` | ❌ | `14inch` | 리퍼비쉬 화면 필터 |
+| `APPLE_REFURB_MIN_MEMORY_GB` | ❌ | `64` | 리퍼비쉬 최소 메모리 (GB) |
+| `APPLE_REFURB_MIN_STORAGE_GB` | ❌ | `1024` | 리퍼비쉬 최소 저장용량 (GB) |
+| `APPLE_REFURB_CHIPS` | ❌ | `M3,M4,M5` | 리퍼비쉬 허용 칩 세대 (쉼표 구분) |
+| `APPLE_REFURB_MAX_PRICE` | ❌ | - | 리퍼비쉬 가격 상한 (원, 비우면 무제한) |
 
 ### 로컬 실행 (venv)
 
@@ -294,7 +321,7 @@ python bot.py
 ```bash
 source venv/bin/activate
 
-# 전체 테스트 (73개)
+# 전체 테스트 (102개)
 python -m pytest tests/ -v
 
 # 유닛 테스트만 (DB 불필요)

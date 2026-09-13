@@ -43,3 +43,19 @@ class Settings:
         ] if key
     ] or ([os.getenv('GEMINI_API_KEY', '')] if os.getenv('GEMINI_API_KEY') else [])
     AI_ANALYSIS_DELAY_HOURS = int(os.getenv('AI_ANALYSIS_DELAY_HOURS', '3'))
+
+    # 애플 리퍼비쉬 감시 (운영자용)
+    # 트리거 키워드를 !키워드 추가 로 등록한 사용자에게만 알림. 등록자가 없으면 크롤링도 하지 않는다.
+    APPLE_REFURB_TRIGGER_KEYWORD = os.getenv('APPLE_REFURB_TRIGGER_KEYWORD', '애플리퍼').strip()
+    APPLE_REFURB_INTERVAL_MINUTES = int(os.getenv('APPLE_REFURB_INTERVAL_MINUTES', '10'))
+    APPLE_REFURB_MODEL = os.getenv('APPLE_REFURB_MODEL', 'macbookpro').strip().lower()
+    APPLE_REFURB_SCREEN = os.getenv('APPLE_REFURB_SCREEN', '14inch').strip().lower()
+    APPLE_REFURB_MIN_MEMORY_GB = int(os.getenv('APPLE_REFURB_MIN_MEMORY_GB', '64'))
+    APPLE_REFURB_MIN_STORAGE_GB = int(os.getenv('APPLE_REFURB_MIN_STORAGE_GB', '1024'))
+    APPLE_REFURB_CHIPS = [
+        c.strip().upper()
+        for c in os.getenv('APPLE_REFURB_CHIPS', 'M3,M4,M5').split(',')
+        if c.strip()
+    ]
+    _refurb_max_price = os.getenv('APPLE_REFURB_MAX_PRICE', '').strip()
+    APPLE_REFURB_MAX_PRICE = int(_refurb_max_price) if _refurb_max_price.isdigit() else None
